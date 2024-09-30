@@ -39,7 +39,7 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
-    "extract_from_images_with_rapidocr",
+    "extract_text_from_images",
     "PyPDFParser",
     "PDFMinerParser",
     "PyMuPDFParser",

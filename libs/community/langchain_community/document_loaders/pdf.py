@@ -3,10 +3,13 @@ import logging
 import os
 import re
 import tempfile
-import time
 from abc import ABC
 from io import StringIO
 from pathlib import Path
+from urllib.parse import urlparse
+
+import requests
+import time
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -18,11 +21,6 @@ from typing import (
     Sequence,
     Union,
 )
-from urllib.parse import urlparse
-
-import requests
-from langchain_core.documents import Document
-from langchain_core.utils import get_from_dict_or_env
 
 from langchain_community.document_loaders.base import BaseLoader
 from langchain_community.document_loaders.blob_loaders import Blob
@@ -37,9 +35,12 @@ from langchain_community.document_loaders.parsers.pdf import (
     PyPDFParser,
 )
 from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
+from langchain_core.documents import Document
+from langchain_core.utils import get_from_dict_or_env
 
 if TYPE_CHECKING:
     from textractor.data.text_linearization_config import TextLinearizationConfig
+
 
 logger = logging.getLogger(__file__)
 
@@ -416,6 +417,8 @@ class PyMuPDFLoader(BasePDFLoader):
         *,
         headers: Optional[Dict] = None,
         extract_images: bool = False,
+        extract_tables: bool = False,
+        extract_tables_settings:Optional[Dict[str,Any]],
         **kwargs: Any,
     ) -> None:
         """Initialize with a file path."""
@@ -428,6 +431,8 @@ class PyMuPDFLoader(BasePDFLoader):
             )
         super().__init__(file_path, headers=headers)
         self.extract_images = extract_images
+        self.extract_tables = extract_tables
+        self.extract_tables_settings = extract_tables_settings
         self.text_kwargs = kwargs
 
     def _lazy_load(self, **kwargs: Any) -> Iterator[Document]:
@@ -439,7 +444,10 @@ class PyMuPDFLoader(BasePDFLoader):
 
         text_kwargs = {**self.text_kwargs, **kwargs}
         parser = PyMuPDFParser(
-            text_kwargs=text_kwargs, extract_images=self.extract_images
+            text_kwargs=text_kwargs,
+            extract_images=self.extract_images,
+            extract_tables=self.extract_tables,
+            extract_tables_settings=self.extract_tables_settings
         )
         if self.web_path:
             blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
@@ -614,6 +622,7 @@ class PDFPlumberLoader(BasePDFLoader):
         dedupe: bool = False,
         headers: Optional[Dict] = None,
         extract_images: bool = False,
+        extract_tables: bool = False,
     ) -> None:
         """Initialize with a file path."""
         try:
@@ -628,6 +637,7 @@ class PDFPlumberLoader(BasePDFLoader):
         self.text_kwargs = text_kwargs or {}
         self.dedupe = dedupe
         self.extract_images = extract_images
+        self.extract_tables = extract_tables
 
     def load(self) -> List[Document]:
         """Load file."""
@@ -636,6 +646,7 @@ class PDFPlumberLoader(BasePDFLoader):
             text_kwargs=self.text_kwargs,
             dedupe=self.dedupe,
             extract_images=self.extract_images,
+            extract_tables=self.extract_tables,
         )
         if self.web_path:
             blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
