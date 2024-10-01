@@ -13,6 +13,8 @@ if TYPE_CHECKING:
         PyPDFParser,
         extract_from_images_with_rapidocr,
     )
+y
+# TODO: no-rentrant
 
 # Create a way to dynamically look up deprecated imports.
 # Used to consolidate logic for raising deprecation warnings and
@@ -39,7 +41,6 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
-    "extract_text_from_images",
     "PyPDFParser",
     "PDFMinerParser",
     "PyMuPDFParser",
