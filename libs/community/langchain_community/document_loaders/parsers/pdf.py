@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import html
+import logging
 import warnings
 from typing import (
     TYPE_CHECKING,
@@ -19,7 +20,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
-    Union, List, Tuple, Literal,
+    Union, List, Tuple, Literal, BinaryIO, Container,
 )
 from urllib.parse import urlparse
 
@@ -56,6 +57,8 @@ _PDF_FILTER_WITHOUT_LOSS = [
     "CCF",
     "JBIG2Decode",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 class OCRPdfParser(BaseBlobParser):
@@ -176,16 +179,97 @@ class PDFMinerParser(OCRPdfParser):
 
     def __init__(self,
                  extract_images: bool = False,
-                 *, concatenate_pages: bool = True):
+                 *,
+                 concatenate_pages: Optional[bool] = None,
+                 extraction_mode: Literal["plain", "page"] = "plain",
+                 ):
         """Initialize a parser based on PDFMiner.
 
         Args:
             extract_images: Whether to extract images from PDF.
-            concatenate_pages: If True, concatenate all PDF pages into one a single
+            extraction_mode: Extraction mode to use. Either "plain" or "page".
+            concatenate_pages: Depreceted. If True, concatenate all PDF pages into one a single
                                document. Otherwise, return one document per page.
         """
         self.extract_images = extract_images
-        self.concatenate_pages = concatenate_pages
+        self.extraction_mode = extraction_mode
+        if concatenate_pages is not None:
+            warnings.warn(
+                "`concatenate_pages` parameter is deprecated. "
+                "Use `extraction_mode='plain'` instead."
+            )
+            extraction_mode="plain" if concatenate_pages else "page"
+            if extraction_mode != self.extraction_mode:
+                warnings.warn(
+                    f"Overriding `concatenate_pages` to "
+                    f"`extraction_mode='{extraction_mode}'`")
+
+    @staticmethod
+    def decode_text(s: Union[bytes, str]) -> str:
+        """
+        Decodes a PDFDocEncoding string to Unicode.
+        Adds py3 compatibility to pdfminer's version.
+        """
+        from pdfminer.utils import PDFDocEncoding
+
+        if isinstance(s, bytes) and s.startswith(b"\xfe\xff"):
+            return str(s[2:], "utf-16be", "ignore")
+        try:
+            ords = (ord(c) if isinstance(c, str) else c for c in s)
+            return "".join(PDFDocEncoding[o] for o in ords)
+        except IndexError:
+            return str(s)
+
+    @staticmethod
+    def resolve_and_decode(obj: Any) -> Any:
+        """Recursively resolve the metadata values."""
+        from pdfminer.psparser import PSLiteral
+
+        if hasattr(obj, "resolve"):
+            obj = obj.resolve()
+        if isinstance(obj, list):
+            return list(map(PDFMinerParser.resolve_and_decode, obj))
+        elif isinstance(obj, PSLiteral):
+            return PDFMinerParser.decode_text(obj.name)
+        elif isinstance(obj, (str, bytes)):
+            return PDFMinerParser.decode_text(obj)
+        elif isinstance(obj, dict):
+            for k, v in obj.items():
+                obj[k] = PDFMinerParser.resolve_and_decode(v)
+            return obj
+
+        return obj
+
+    def _get_metadata(
+            self,
+            fp: BinaryIO,
+            password: str = "",
+            caching: bool = True,
+    ) -> Iterator[Tuple["PDFPage", Dict[str, Any]]]:
+        from pdfminer.pdfpage import PDFPage, PDFParser, PDFDocument
+        # Create a PDF parser object associated with the file object.
+        parser = PDFParser(fp)
+        # Create a PDF document object that stores the document structure.
+        doc = PDFDocument(parser, password=password, caching=caching)
+        metadata = {}
+
+        for info in doc.info:
+            metadata.update(info)
+        for k, v in metadata.items():
+            try:
+                metadata[k] = PDFMinerParser.resolve_and_decode(v)
+            except Exception as e:  # pragma: nocover
+                # This metadata value could not be parsed. Instead of failing the PDF
+                # read, treat it as a warning only if `strict_metadata=False`.
+                logger.warning(
+                    f'[WARNING] Metadata key "{k}" could not be parsed due to '
+                    f"exception: {str(e)}"
+                )
+
+        # Count number of pages.
+        metadata["total_pages"] = len(list(PDFPage.create_pages(doc)))
+
+        return metadata
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
         """Lazily parse the blob."""
@@ -200,18 +284,22 @@ class PDFMinerParser(OCRPdfParser):
                 )
 
             with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
-                if self.concatenate_pages:
+                if self.extraction_mode == "page":
+                    file_metadata = self._get_metadata(pdf_file_obj)
                     text = extract_text(pdf_file_obj)
-                    metadata = {"source": blob.source}  # type: ignore[attr-defined]
+                    metadata = {**file_metadata,
+                                **{"source": blob.source}}  # type: ignore[attr-defined]
                     yield Document(page_content=text, metadata=metadata)
                 else:
                     from pdfminer.pdfpage import PDFPage
 
+                    file_metadata = self._get_metadata(pdf_file_obj)
                     pages = PDFPage.get_pages(pdf_file_obj)
                     for i, _ in enumerate(pages):
                         text = extract_text(pdf_file_obj, page_numbers=[i])
-                        metadata = {"source": blob.source,
-                                    "page": str(i)}  # type: ignore[attr-defined]
+                        metadata = {**file_metadata, **{"source": blob.source,
+                                                        "page": str(
+                                                            i)}}  # type: ignore[attr-defined]
                         yield Document(page_content=text, metadata=metadata)
         else:
             import io
@@ -292,13 +380,13 @@ class PyMuPDFParser(OCRPdfParser):
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
         """Lazily parse the blob."""
-        import fitz
+        import pymupdf
 
         with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
             if blob.data is None:  # type: ignore[attr-defined]
-                doc = fitz.open(file_path)
+                doc = pymupdf.open(file_path)
             else:
-                doc = fitz.open(stream=file_path, filetype="pdf")
+                doc = pymupdf.open(stream=file_path, filetype="pdf")
 
             for page in doc:
                 page_content = self._get_page_content(doc, page, blob)
@@ -499,7 +587,7 @@ class PDFPlumberParser(OCRPdfParser):
             extract_tables_settings: Optional[Mapping[str, Any]] = None,
             extraction_mode: Literal["plain", "page", "layout"] = "plain",
             extract_images: bool = False,
-            extract_tables: Optional[Literal["csv","markdown","html"]] = None,
+            extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
             dedupe: bool = False,
             include_page_breaks: bool = False,  # FIXME vs unstructured
     ) -> None:
