@@ -372,7 +372,7 @@ class PDFMinerLoader(BasePDFLoader):
                                   path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
-        yield from self.parser.parse(blob)
+        yield from self.parser.lazy_parse(blob)
 
 
 class PDFMinerPDFasHTMLLoader(BasePDFLoader):
@@ -634,7 +634,7 @@ class PDFPlumberLoader(BasePDFLoader):
             dedupe: bool = False,
             headers: Optional[Dict] = None,
             extract_images: bool = False,
-            extract_tables: bool = False,
+            extract_tables: Optional[Literal["csv","markdown","html"]] = None,
     ) -> None:
         """Initialize with a file path."""
         try:
@@ -653,6 +653,7 @@ class PDFPlumberLoader(BasePDFLoader):
         self.extract_images = extract_images
         self.extract_tables = extract_tables
 
+    # TODO: aload_and_split
     def load_and_split(
         self, text_splitter: Optional[TextSplitter] = None
     ) -> list[Document]:

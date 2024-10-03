@@ -60,7 +60,7 @@ def test_pdfplumber_loader() -> None:
     file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
     loader = PDFPlumberLoader(str(file_path),
                             extraction_mode="plain",
-                            extract_tables=True,
+                            extract_tables="markdown",
                             extract_images=False,
                             )
     docs = loader.load()
@@ -70,7 +70,7 @@ def test_pdfplumber_loader() -> None:
     file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
     loader = PDFPlumberLoader(str(file_path),
                             extraction_mode="page",
-                            extract_tables=True,
+                            extract_tables="html",
                             extract_images=False,
                             )
     docs = loader.load()
@@ -80,7 +80,7 @@ def test_pdfplumber_loader() -> None:
     file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
     loader = PDFPlumberLoader(str(file_path),
                             extraction_mode="layout",
-                            extract_tables=True,
+                            extract_tables="csv",
                             extract_images=False,
                             )
     docs = loader.load()
@@ -88,7 +88,7 @@ def test_pdfplumber_loader() -> None:
     assert len(docs[0].metadata) == 15
 
     loader = PDFPlumberLoader(str(file_path),
-                            extract_tables=True,
+                            extract_tables="markdown",
                             extract_images=False,
                             )
     from langchain_text_splitters import CharacterTextSplitter
@@ -104,7 +104,7 @@ def test_pdfplumber_loader() -> None:
     file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
     loader = PDFPlumberLoader(str(file_path),
                             extraction_mode="layout",
-                            extract_tables=True,
+                            extract_tables="markdown",
                             extract_images=True,
                             )
     docs = loader.load()

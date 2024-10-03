@@ -499,7 +499,7 @@ class PDFPlumberParser(OCRPdfParser):
             extract_tables_settings: Optional[Mapping[str, Any]] = None,
             extraction_mode: Literal["plain", "page", "layout"] = "plain",
             extract_images: bool = False,
-            extract_tables: bool = False,
+            extract_tables: Optional[Literal["csv","markdown","html"]] = None,
             dedupe: bool = False,
             include_page_breaks: bool = False,  # FIXME vs unstructured
     ) -> None:
@@ -558,7 +558,7 @@ class PDFPlumberParser(OCRPdfParser):
                 images_bbox,
                 images_content)
             contents.append(page_content)
-            tables_as_html.extend([self._convert_table_to_html(table)
+            tables_as_html.extend([self._convert_table(table)
                                    for
                                    table in tables_content])
         yield Document(
@@ -651,6 +651,7 @@ class PDFPlumberParser(OCRPdfParser):
                     )
                 elif isinstance(content, np.ndarray):
                     # If change the interface to return list[BaseMedia]
+                    # in place of list[Document]
                     # yield Blob.from_data(content,
                     #                      mime_type="image/jpeg",  # FIXME
                     #                      metadata={
@@ -676,8 +677,7 @@ class PDFPlumberParser(OCRPdfParser):
                                    )
                 else:
                     yield Document(
-                        page_content=self._convert_table_to_html(content),
-                        # FIXME html ?
+                        page_content=self._convert_table(content),
                         metadata=dict(
                             {
                                 "source": blob.source,
@@ -717,7 +717,7 @@ class PDFPlumberParser(OCRPdfParser):
             elif isinstance(content, np.ndarray):
                 result.append(self.convert_image_to_text([content]))
             else:
-                result.append(self._convert_table_to_html(content))  # FIXME
+                result.append(self._convert_table(content))  # FIXME
         return " ".join(result)
 
     def _split_page_content(
@@ -841,6 +841,19 @@ class PDFPlumberParser(OCRPdfParser):
         table_settings = self.extract_tables_settings
         tables_list = page.extract_tables(table_settings)
         return tables_list
+
+    def _convert_table(self, table: List[List[str]]) -> str:
+        format = self.extract_tables
+        if format is None:
+            return ""
+        if format == "markdown":
+            return self._convert_table_to_markdown(table)
+        elif format == "html":
+            return self._convert_table_to_html(table)
+        elif format == "csv":
+            return self._convert_table_to_csv(table)
+        else:
+            raise ValueError(f"Unknown table format: {format}")
 
     def _convert_table_to_csv(self, table: List[List[str]]) -> str:
         """Output table content as a string in Github-markdown format."""
