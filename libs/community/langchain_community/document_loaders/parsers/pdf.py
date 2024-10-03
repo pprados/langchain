@@ -284,13 +284,13 @@ class PDFMinerParser(OCRPdfParser):
                 )
 
             with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
-                if self.extraction_mode == "page":
+                if self.extraction_mode == "plain":
                     file_metadata = self._get_metadata(pdf_file_obj)
                     text = extract_text(pdf_file_obj)
                     metadata = {**file_metadata,
                                 **{"source": blob.source}}  # type: ignore[attr-defined]
                     yield Document(page_content=text, metadata=metadata)
-                else:
+                elif self.extraction_mode == "page":
                     from pdfminer.pdfpage import PDFPage
 
                     file_metadata = self._get_metadata(pdf_file_obj)
@@ -301,6 +301,9 @@ class PDFMinerParser(OCRPdfParser):
                                                         "page": str(
                                                             i)}}  # type: ignore[attr-defined]
                         yield Document(page_content=text, metadata=metadata)
+                else:
+                    raise ValueError(
+                        "extraction_mode must be plain or page")
         else:
             import io
 

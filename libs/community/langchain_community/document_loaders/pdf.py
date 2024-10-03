@@ -341,7 +341,8 @@ class PDFMinerLoader(BasePDFLoader):
             *,
             headers: Optional[Dict] = None,
             extract_images: bool = False,
-            concatenate_pages: bool = True,  # FIXME: deprecated. extraction_mode
+            concatenate_pages: Optional[bool] = None,
+            extraction_mode: Literal["plain", "page"] = "plain",
     ) -> None:
         """Initialize with file path.
 
@@ -360,7 +361,9 @@ class PDFMinerLoader(BasePDFLoader):
 
         super().__init__(file_path, headers=headers)
         self.parser = PDFMinerParser(
-            extract_images=extract_images, concatenate_pages=concatenate_pages
+            extract_images=extract_images,
+            extraction_mode=extraction_mode,
+            concatenate_pages=concatenate_pages
         )
 
     def lazy_load(
@@ -646,18 +649,8 @@ class PDFPlumberLoader(BasePDFLoader):
             )
 
         super().__init__(file_path, headers=headers)
-        self.extraction_mode = extraction_mode
-        self.text_kwargs = text_kwargs or {}
-        self.extract_tables_settings = extract_tables_settings
-        self.dedupe = dedupe
-        self.extract_images = extract_images
-        self.extract_tables = extract_tables
-
-    # TODO: aload_and_split
-    def load_and_split(
-        self, text_splitter: Optional[TextSplitter] = None
-    ) -> list[Document]:
-        parser = PDFPlumberParser(
+        self.file_path = file_path
+        self.parser = PDFPlumberParser(
             text_kwargs=self.text_kwargs,
             extraction_mode="layout",
             extract_tables_settings=self.extract_tables_settings,
@@ -665,12 +658,17 @@ class PDFPlumberLoader(BasePDFLoader):
             extract_images=self.extract_images,
             extract_tables=self.extract_tables,
         )
+
+    # TODO: aload_and_split
+    def load_and_split(
+        self, text_splitter: Optional[TextSplitter] = None
+    ) -> list[Document]:
         if self.web_path:
             blob = Blob.from_data(open(self.file_path, "rb").read(),
                                   path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
-        docs= parser.parse(blob)
+        docs= self.parser.parse(blob)
         if text_splitter:
             return text_splitter.split_documents(docs)
         else:
@@ -679,20 +677,12 @@ class PDFPlumberLoader(BasePDFLoader):
     def lazy_load(self) -> Iterator[Document]:
         """Load file."""
 
-        parser = PDFPlumberParser(
-            text_kwargs=self.text_kwargs,
-            extraction_mode=self.extraction_mode,
-            extract_tables_settings=self.extract_tables_settings,
-            dedupe=self.dedupe,
-            extract_images=self.extract_images,
-            extract_tables=self.extract_tables,
-        )
         if self.web_path:
             blob = Blob.from_data(open(self.file_path, "rb").read(),
                                   path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
-        return parser.lazy_parse(blob)
+        return self.parser.lazy_parse(blob)
 
 
 class AmazonTextractPDFLoader(BasePDFLoader):

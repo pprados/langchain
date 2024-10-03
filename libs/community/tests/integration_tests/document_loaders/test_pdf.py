@@ -128,13 +128,15 @@ def test_pdfminer_loader() -> None:
 
     # Verify that concatenating pages parameter works
     file_path = Path(__file__).parent.parent / "examples/hello.pdf"
-    loader = PDFMinerLoader(str(file_path), concatenate_pages=True)
+    loader = PDFMinerLoader(str(file_path),
+                            extraction_mode="plain")
     docs = loader.load()
 
     assert len(docs) == 1
 
     file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
-    loader = PDFMinerLoader(str(file_path), concatenate_pages=False)
+    loader = PDFMinerLoader(str(file_path),
+                            extraction_mode="page")
 
     docs = loader.load()
     assert len(docs) == 16
