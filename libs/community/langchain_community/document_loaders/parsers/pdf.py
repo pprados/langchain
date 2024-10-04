@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import html
 import logging
+import re
 import warnings
+from datetime import datetime
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -20,25 +22,26 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
-    Union, List, Tuple, Literal, BinaryIO, Container,
-)
+    Union, List, Tuple, Literal, BinaryIO, )
 from urllib.parse import urlparse
 
 import numpy as np
 
 from langchain_community.document_loaders.base import BaseBlobParser
 from langchain_community.document_loaders.blob_loaders import Blob
+from langchain_core._api.deprecation import (
+    deprecated,
+)
 from langchain_core.documents import Document
 
 if TYPE_CHECKING:
-    import fitz.fitz
+    import pymupdf.pymupdf
     import pdfminer.layout
     import pdfplumber.page
     import pypdf._page
     import pypdfium2._helpers.page
     from pypdf import PageObject
     from textractor.data.text_linearization_config import TextLinearizationConfig
-    from pymupdf.table import Table
     from pdfplumber.utils import text, geometry  # import WordExctractor, TextMap
 
 _PDF_FILTER_WITH_LOSS = ["DCTDecode", "DCT", "JPXDecode"]
@@ -59,6 +62,39 @@ _PDF_FILTER_WITHOUT_LOSS = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+@deprecated(since="3.0.0",
+            alternative="Use Parser.convert_image_to_text()")
+def extract_from_images_with_rapidocr(
+        images: Sequence[Union[Iterable[np.ndarray], bytes]],
+) -> str:
+    """Extract text from images with RapidOCR.
+
+    Args:
+        images: Images to extract text from.
+
+    Returns:
+        Text extracted from images.
+
+    Raises:
+        ImportError: If `rapidocr-onnxruntime` package is not installed.
+    """
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+    except ImportError:
+        raise ImportError(
+            "`rapidocr-onnxruntime` package not found, please install it with "
+            "`pip install rapidocr-onnxruntime`"
+        )
+    ocr = RapidOCR()
+    text = ""
+    for img in images:
+        result, _ = ocr(img)
+        if result:
+            result = [text[1] for text in result]
+            text += "\n".join(result)
+    return text
 
 
 class OCRPdfParser(BaseBlobParser):
@@ -198,7 +234,7 @@ class PDFMinerParser(OCRPdfParser):
                 "`concatenate_pages` parameter is deprecated. "
                 "Use `extraction_mode='plain'` instead."
             )
-            extraction_mode="plain" if concatenate_pages else "page"
+            extraction_mode = "plain" if concatenate_pages else "page"
             if extraction_mode != self.extraction_mode:
                 warnings.warn(
                     f"Overriding `concatenate_pages` to "
@@ -368,8 +404,6 @@ class PyMuPDFParser(OCRPdfParser):
             self,
             text_kwargs: Optional[Mapping[str, Any]] = None,
             extract_images: bool = False,
-            extract_tables: bool = False,
-            extract_tables_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize the parser.
 
@@ -378,11 +412,10 @@ class PyMuPDFParser(OCRPdfParser):
         """
         self.text_kwargs = text_kwargs or {}
         self.extract_images = extract_images
-        self.extract_tables = extract_tables
-        self.extract_tables_settings = extract_tables_settings
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
         """Lazily parse the blob."""
+
         import pymupdf
 
         with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
@@ -391,32 +424,21 @@ class PyMuPDFParser(OCRPdfParser):
             else:
                 doc = pymupdf.open(stream=file_path, filetype="pdf")
 
-            for page in doc:
-                page_content = self._get_page_content(doc, page, blob)
-                image_content = self._extract_images_f_rom_page(doc, page)
-                metadata = self._extract_metadata(doc, page, blob)
-                yield Document(
-                    page_content=page_content + image_content,
-                    metadata=metadata
+            yield from [
+                Document(
+                    page_content=self._get_page_content(doc, page, blob),
+                    metadata=self._extract_metadata(doc, page, blob),
                 )
-
-            # yield from [
-            #     Document(
-            #         page_content=self._get_page_content(doc, page, blob)
-            #         + self._extract_images_f_rom_page(doc, page),
-            #         metadata=self._extract_metadata(doc, page, blob),
-            #     )
-            #     for page in doc
-            # ]
+                for page in doc
+            ]
 
     def _get_page_content(
-            self, doc: fitz.fitz.Document, page: fitz.fitz.Page, blob: Blob
+            self, doc: pymupdf.pymupdf.Document, page: fitz.fitz.Page, blob: Blob
     ) -> str:
         """
         Get the text of the page using PyMuPDF and RapidOCR and issue a warning
         if it is empty.
         """
-        page.extract_tables()
         content = page.get_text(**self.text_kwargs) + self._extract_images_from_page(
             doc, page
         )
@@ -430,7 +452,7 @@ class PyMuPDFParser(OCRPdfParser):
         return content
 
     def _extract_metadata(
-            self, doc: fitz.fitz.Document, page: fitz.fitz.Page, blob: Blob
+            self, doc: pymupdf.pymupdf.Document, page: pymupdf.pymupdf.Page, blob: Blob
     ) -> dict:
         """Extract metadata from the document and page."""
         return dict(
@@ -439,8 +461,6 @@ class PyMuPDFParser(OCRPdfParser):
                 "file_path": blob.source,  # type: ignore[attr-defined]
                 "page": page.number,
                 "total_pages": len(doc),
-                "text_as_html": self.extract_tables_from_page(page,
-                                                              mode="html")
             },
             **{
                 k: doc.metadata[k]
@@ -449,84 +469,92 @@ class PyMuPDFParser(OCRPdfParser):
             },
         )
 
-    def extract_images_from_page(
-            self, doc: fitz.fitz.Document, page: fitz.fitz.Page
+    def _extract_images_from_page(
+            self, doc: pymupdf.pymupdf.Document, page: pymupdf.pymupdf.Page
     ) -> str:
         """Extract images from page and get the text with RapidOCR."""
         if not self.extract_images:
             return ""
-        import fitz
+        import pymupdf
 
         img_list = page.get_images()
         imgs = []
         for img in img_list:
             xref = img[0]
-            pix = fitz.Pixmap(doc, xref)
+            pix = pymupdf.Pixmap(doc, xref)
             imgs.append(
                 np.frombuffer(pix.samples, dtype=np.uint8).reshape(
                     pix.height, pix.width, -1
                 )
             )
-        return self.convert_image_to_text(imgs)  # TODO: method
+        return self.convert_image_to_text(imgs)
 
-    def _convert_table_to_html(self, table: Table) -> str:
-        """Output table content as a string in HTML format.
 
-        If clean is true, markdown syntax is removed from cell content."""
-        output = "<table>\n"
-        clean = True
+class PyMuPDF4LLMParser(OCRPdfParser):
+    """Parse `PDF` using `PyMuPDF`."""
 
-        # generate header string and html underline
-        if table.header.names:
-            output += "<tr>"
-        for i, name in enumerate(table.header.names):
-            if name is None or name == "":  # generate a name if empty
-                name = f"Col{i + 1}"
-            name = name.replace("\n", " ")  # remove any line breaks
-            if clean:  # remove sensitive syntax
-                name = html.escape(name.replace("-", "&#45;"))
-            output += "<th>" + name + "</th>"
-        if table.header.names:
-            output += "</tr>\n"
-
-        # skip first row in details if header is part of the table
-        j = 0 if table.header.external else 1
-
-        # iterate over detail rows
-        for row in table.extract()[j:]:
-            line = "<tr>"
-            for i, cell in enumerate(row):
-                # output None cells with empty string
-                cell = "" if cell is None else cell.replace("\n", " ")
-                if clean:  # remove sensitive syntax
-                    cell = html.escape(cell.replace("-", "&#45;"))
-                line += "<td>" + cell + "</td>"
-            line += "</tr>\n"
-            output += line
-        return output + "</table>\n"
-
-    def _convert_table_to_markdown(self, table: Table) -> str:
-        return table.to_markdown()
-
-    def extract_tables_from_page(
+    def __init__(
             self,
-            page: fitz.fitz.Page,
-            mode: str = "markdown",
-    ) -> str:
-        """Extract tables from page and get the text."""
-        if not self.extract_tables:
-            return ""
+            extraction_mode: Literal["plain", "page"] = "page",
+            to_markdown_kwargs: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        """Initialize the parser.
 
-        from pymupdf.table import find_tables
-        tables_list = find_tables(page, **self.extract_tables_settings)
-        final_result = ""
-        for table in tables_list:
-            if mode == "markdown":
-                final_result += self._convert_table_to_markdown(table)
+        Args:
+            text_kwargs: Keyword arguments to pass to ``fitz.Page.get_text()``.
+        """
+        _to_markdown_kwargs = to_markdown_kwargs or {}
+        if extraction_mode == "plain":
+            del _to_markdown_kwargs["page_chunks"]
+        elif extraction_mode == "page":
+            _to_markdown_kwargs["page_chunks"] = True
+        else:
+            raise ValueError("extraction_mode must be plain or page")
+        self.to_markdown_kwargs = _to_markdown_kwargs
+
+    def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
+        """Lazily parse the blob."""
+        import pymupdf4llm
+        # FIXME
+        with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
+            if blob.data is None:  # type: ignore[attr-defined]
+                for mu_doc in pymupdf4llm.to_markdown(
+                        file_path,
+                        **self.to_markdown_kwargs,
+                ):
+                    yield Document(
+                        page_content=mu_doc['text'],
+                        metadata=self._purge_metadata(mu_doc['metadata'])
+                    )
+                    # TODO: extraire les images. Voir PyMuPDFParser
             else:
-                final_result += self._convert_table_to_html(table)
+                raise NotImplementedError("stream not implemented")
 
-        return final_result
+    _map_key = {
+        "page_count": "total_pages",
+        "file_path": "source"
+    }
+    _date_key = [
+        "creationdate", "moddate"
+    ]
+
+    def _purge_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Purge metadata from unwanted keys."""
+        new_metadata = {}
+        for k in metadata.keys():
+            if k.lower() in PyMuPDF4LLMParser._date_key:
+                try:
+                    new_metadata[k] = datetime.strptime(
+                        metadata[k].replace("'", ""),
+                        "D:%Y%m%d%H%M%S%z").isoformat("T")
+                except ValueError:
+                    new_metadata[k] = metadata[k]
+            elif k.lower() in PyMuPDF4LLMParser._map_key:
+                # Normliaze key with others PDF parser
+                new_metadata[PyMuPDF4LLMParser._map_key[k.lower()]] = metadata[k]
+            elif isinstance(metadata[k], (str, int)):
+                new_metadata[k] = metadata[k]
+        return new_metadata
 
 
 class PyPDFium2Parser(OCRPdfParser):
@@ -575,9 +603,6 @@ class PyPDFium2Parser(OCRPdfParser):
 
         images = list(map(lambda x: x.get_bitmap().to_numpy(), images))
         return self.convert_image_to_text(images)
-
-
-from pdfplumber.table import Table as PDFPlumberTable
 
 
 class PDFPlumberParser(OCRPdfParser):
@@ -916,7 +941,8 @@ class PDFPlumberParser(OCRPdfParser):
 
     def _extract_tables_bbox_from_page(self,
                                        page: pdfplumber.page.Page,
-                                       ) -> List[PDFPlumberTable]:
+                                       ) -> List["PDFPlumberTable"]:
+
         if not self.extract_tables:
             return []
         from pdfplumber.table import TableSettings
@@ -926,7 +952,7 @@ class PDFPlumberParser(OCRPdfParser):
 
     def _extract_tables_from_page(self,
                                   page: pdfplumber.page.Page,
-                                  ) -> List[PDFPlumberTable]:
+                                  ) -> List["PDFPlumberTable"]:
         if not self.extract_tables:
             return []
         table_settings = self.extract_tables_settings
@@ -1206,3 +1232,78 @@ class DocumentIntelligenceParser(BaseBlobParser):
             docs = self._generate_docs(blob, result)
 
             yield from docs
+
+
+REGEX = Union[re, str]
+
+
+class PDFRouterParser(BaseBlobParser):
+    """
+    Parse PDFs using different parsers based on the metadata of the PDF.
+    The routes are defined as a list of tuples, where each tuple contains
+    the regex pattern for the producer, creator, and page, and the parser to use.
+    The parser is used if the regex pattern matches the metadata of the PDF.
+    Use the route in the correct order, as the first matching route is used.
+    Add a default route (None, None, None, parser) at the end to catch all PDFs.
+
+    Sample:
+    ```python
+    from langchain_community.document_loaders import PyPDFLoader
+    from langchain_community.document_loaders.parsers.pdf import PyMuPDFParser
+    from langchain_community.document_loaders.parsers.pdf import PyPDFium2Parser
+    from langchain_community.document_loaders.parsers import PDFPlumberParser
+    routes = [
+        ("Microsoft", "Microsoft", None, PyMuPDFParser()),
+        ("LibreOffice", None, None, PDFPlumberParser()),
+        (None, None, None, PyPDFium2Parser())
+    ]
+    loader = PDFRouterLoader(filename, routes)
+    loader.load()
+    ```
+    """
+
+    def __init__(
+            self,
+            routes: List[
+                Tuple[
+                    Optional[REGEX], Optional[REGEX], Optional[REGEX], BaseBlobParser]],
+    ):
+        """Initialize with a file path."""
+        try:
+            import pypdf  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "pypdf package not found, please install it with `pip install pypdf`"
+            )
+        super().__init__()
+        new_routes = []
+        for producer, create, page, parser in routes:
+            if isinstance(producer, str):
+                producer = re.compile(producer)
+            if isinstance(create, str):
+                create = re.compile(create)
+            if isinstance(page, str):
+                page = re.compile(page)
+            new_routes.append((producer, create, page, parser))
+        self.routes = new_routes
+
+    def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
+        """Lazily parse the blob."""
+        from pypdf import PdfReader
+
+        with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
+
+            with PdfReader(pdf_file_obj) as reader:
+                if reader.metadata:
+                    producer, create = reader.metadata.producer, reader.metadata.creator
+                    page1 = reader.pages[0].extract_text()
+                for re_producer, re_create, re_page, parser in self.routes:
+                    is_producer = (not re_producer
+                                   or re_producer.search(producer))
+                    is_create = (not re_create
+                                 or re_create.search(create))
+                    is_page = (not re_page
+                               or re_page.search(page1))
+                    if is_producer and is_create and is_page:
+                        yield from parser.lazy_parse(blob)
+                        break

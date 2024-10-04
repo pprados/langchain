@@ -24,8 +24,10 @@ if TYPE_CHECKING:
         PDFMinerParser,
         PDFPlumberParser,
         PyMuPDFParser,
+        PyMuPDF4LLMParser,
         PyPDFium2Parser,
         PyPDFParser,
+        PDFRouterParser,
     )
     from langchain_community.document_loaders.parsers.vsdx import (
         VsdxParser,
@@ -42,8 +44,10 @@ _module_lookup = {
     "PDFMinerParser": "langchain_community.document_loaders.parsers.pdf",
     "PDFPlumberParser": "langchain_community.document_loaders.parsers.pdf",
     "PyMuPDFParser": "langchain_community.document_loaders.parsers.pdf",
+    "PyMuPDF4LLMParser": "langchain_community.document_loaders.parsers.pdf",
     "PyPDFParser": "langchain_community.document_loaders.parsers.pdf",
     "PyPDFium2Parser": "langchain_community.document_loaders.parsers.pdf",
+    "PDFRouterParser": "langchain_community.document_loaders.parsers.pdf",
     "VsdxParser": "langchain_community.document_loaders.parsers.vsdx",
 }
 

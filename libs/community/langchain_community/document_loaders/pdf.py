@@ -15,7 +15,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
-    Union, Literal,
+    Union, Literal, Tuple, Type,
 )
 from urllib.parse import urlparse
 
@@ -32,9 +32,10 @@ from langchain_community.document_loaders.parsers.pdf import (
     PDFPlumberParser,
     PyMuPDFParser,
     PyPDFium2Parser,
-    PyPDFParser,
+    PyPDFParser, PyMuPDF4LLMParser, PDFRouterParser,
 )
 from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
+from langchain_core.document_loaders import BaseBlobParser
 from langchain_core.documents import Document
 from langchain_core.utils import get_from_dict_or_env
 from langchain_text_splitters import TextSplitter
@@ -229,7 +230,7 @@ class PyPDFLoader(BasePDFLoader):
             password: Optional[Union[str, bytes]] = None,
             headers: Optional[Dict] = None,
             extract_images: bool = False,
-            extraction_mode: Literal["plain","layout"] = "plain",
+            extraction_mode: Literal["plain", "layout"] = "plain",
             extraction_kwargs: Optional[Dict] = None,
     ) -> None:
         """Initialize with a file path."""
@@ -256,7 +257,7 @@ class PyPDFLoader(BasePDFLoader):
                                   path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
-        yield from self.parser.parse(blob)
+        yield from self.parser.lazy_parse(blob)
 
 
 class PyPDFium2Loader(BasePDFLoader):
@@ -469,6 +470,39 @@ class PyMuPDFLoader(BasePDFLoader):
         yield from self._lazy_load()
 
 
+class PyMuPDF4LLMLoader(BasePDFLoader):
+    """Load `PDF` files using `PyMuPDF`."""
+
+    def __init__(
+            self,
+            file_path: str,
+            extract_images: bool = False,
+            extraction_mode: Literal["plain", "page"] = "page",
+            **kwargs: Any,
+    ) -> None:
+        """Initialize with a file path."""
+        try:
+            import pymupdf4llm  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "`PyMuPDF4LLM` package not found, please install it with "
+                "`pip install pymupdf4llm`"
+            )
+        super().__init__(file_path)
+        if extract_images:
+            raise NotImplemented("extract_images is not implemented yet.")
+        self.parser = PyMuPDF4LLMParser(
+            extraction_mode=extraction_mode,
+            to_markdown_kwargs=kwargs)
+
+    def lazy_load(
+            self,
+    ) -> Iterator[Document]:
+        """Lazily load documents."""
+        blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
+        yield from self.parser.lazy_parse(blob)
+
+
 # MathpixPDFLoader implementation taken largely from Daniel Gross's:
 # https://gist.github.com/danielgross/3ab4104e14faccc12b49200843adab21
 class MathpixPDFLoader(BasePDFLoader):
@@ -627,17 +661,17 @@ class PDFPlumberLoader(BasePDFLoader):
             self,
             file_path: str,
             *,
-            extraction_mode:Literal["plain","page","layout"]="page",
-            text_kwargs: Optional[Mapping[str, Any]] =  {
+            extraction_mode: Literal["plain", "page", "layout"] = "page",
+            text_kwargs: Optional[Mapping[str, Any]] = {
                 # MUST be True, but it's False for compatibility reasons
                 "use_text_flow": False,
                 "keep_blank_chars": False,
-                },
+            },
             extract_tables_settings: Optional[Dict[str, Any]] = None,
             dedupe: bool = False,
             headers: Optional[Dict] = None,
             extract_images: bool = False,
-            extract_tables: Optional[Literal["csv","markdown","html"]] = None,
+            extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
     ) -> None:
         """Initialize with a file path."""
         try:
@@ -661,14 +695,14 @@ class PDFPlumberLoader(BasePDFLoader):
 
     # TODO: aload_and_split
     def load_and_split(
-        self, text_splitter: Optional[TextSplitter] = None
+            self, text_splitter: Optional[TextSplitter] = None
     ) -> list[Document]:
         if self.web_path:
             blob = Blob.from_data(open(self.file_path, "rb").read(),
                                   path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
-        docs= self.parser.parse(blob)
+        docs = self.parser.parse(blob)
         if text_splitter:
             return text_splitter.split_documents(docs)
         else:
@@ -989,3 +1023,54 @@ class DocumentIntelligenceLoader(BasePDFLoader):
 
 # Legacy: only for backwards compatibility. Use PyPDFLoader instead
 PagedPDFSplitter = PyPDFLoader
+
+class PDFRouterLoader(BasePDFLoader):
+    """
+    Load PDFs using different parsers based on the metadata of the PDF.
+    The routes are defined as a list of tuples, where each tuple contains
+    the regex pattern for the producer, creator, and page, and the parser to use.
+    The parser is used if the regex pattern matches the metadata of the PDF.
+    Use the route in the correct order, as the first matching route is used.
+    Add a default route (None, None, None, parser) at the end to catch all PDFs.
+
+    Sample:
+    ```python
+    from langchain_community.document_loaders import PyPDFLoader
+    from langchain_community.document_loaders.parsers.pdf import PyMuPDFParser
+    from langchain_community.document_loaders.parsers.pdf import PyPDFium2Parser
+    from langchain_community.document_loaders.parsers import PDFPlumberParser
+    routes = [
+        ("Microsoft", "Microsoft", None, PyMuPDFParser()),
+        ("LibreOffice", None, None, PDFPlumberParser()),
+        (None, None, None, PyPDFium2Parser())
+    ]
+    loader = PDFRouterLoader(filename, routes)
+    loader.load()
+    ``` 
+
+    def __init__(
+            self,
+            file_path: str,
+            routes: List[
+                Tuple[Optional[re], Optional[re], Optional[re], BaseBlobParser]],
+    ):
+        """Initialize with a file path."""
+        try:
+            import pypdf  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "pypdf package not found, please install it with `pip install pypdf`"
+            )
+        super().__init__(file_path)
+        self.parser = PDFRouterParser(routes)
+
+    def lazy_load(
+            self,
+    ) -> Iterator[Document]:
+        if self.web_path:
+            blob = Blob.from_data(open(self.file_path, "rb").read(),
+                                  path=self.web_path)  # type: ignore[attr-defined]
+        else:
+            blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
+        yield from self.parser.lazy_parse(blob)
+
