@@ -1047,7 +1047,7 @@ class PDFRouterLoader(BasePDFLoader):
     loader = PDFRouterLoader(filename, routes)
     loader.load()
     ``` 
-
+    """
     def __init__(
             self,
             file_path: str,
