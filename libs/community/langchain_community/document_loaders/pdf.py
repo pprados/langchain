@@ -265,6 +265,7 @@ class PyPDFium2Loader(BasePDFLoader):
             self,
             file_path: str,
             *,
+            mode: Literal["flow", "page"] = "page",
             password: Optional[str] = None,
             # mode: Literal["flow", "page"] = "page",  # FIXME
             extract_images: bool = False,
@@ -274,6 +275,7 @@ class PyPDFium2Loader(BasePDFLoader):
         """Initialize with a file path."""
         super().__init__(file_path, headers=headers)
         self.parser = PyPDFium2Parser(
+            mode=mode,
             password=password,
             extract_images=extract_images)
 
@@ -633,10 +635,10 @@ class PDFRouterLoader(BasePDFLoader):
     def __init__(
             self,
             file_path: str,
+            *,
             routes: List[
                 Tuple[
                     Optional[REGEX], Optional[REGEX], Optional[REGEX], BaseBlobParser]],
-            *,
             password: Optional[str] = None,
     ):
         """Initialize with a file path."""

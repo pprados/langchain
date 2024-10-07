@@ -64,6 +64,25 @@ _PDF_FILTER_WITHOUT_LOSS = [
 logger = logging.getLogger(__name__)
 
 
+def _purge_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Purge metadata from unwanted keys."""
+    new_metadata = {}
+    for k in metadata.keys():
+        if k.lower() in PyMuPDF4LLMParser._date_key:
+            try:
+                new_metadata[k] = datetime.strptime(
+                    metadata[k].replace("'", ""),
+                    "D:%Y%m%d%H%M%S%z").isoformat("T")
+            except ValueError:
+                new_metadata[k] = metadata[k]
+        elif k.lower() in PyMuPDF4LLMParser._map_key:
+            # Normliaze key with others PDF parser
+            new_metadata[PyMuPDF4LLMParser._map_key[k.lower()]] = metadata[k]
+        elif isinstance(metadata[k], (str, int)):
+            new_metadata[k] = metadata[k]
+    return new_metadata
+
+
 @deprecated(since="3.0.0",
             alternative="Use Parser.convert_image_to_text()")
 def extract_from_images_with_rapidocr(
@@ -555,7 +574,7 @@ class PyMuPDF4LLMParser(OCRPdfParser):
                 ):
                     yield Document(
                         page_content=mu_doc['text'],
-                        metadata=self._purge_metadata(mu_doc['metadata'])
+                        metadata=_purge_metadata(mu_doc['metadata'])
                     )
                     # TODO: extraire les images. Voir PyMuPDFParser
             else:
@@ -569,24 +588,6 @@ class PyMuPDF4LLMParser(OCRPdfParser):
         "creationdate", "moddate"
     ]
 
-    def _purge_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Purge metadata from unwanted keys."""
-        new_metadata = {}
-        for k in metadata.keys():
-            if k.lower() in PyMuPDF4LLMParser._date_key:
-                try:
-                    new_metadata[k] = datetime.strptime(
-                        metadata[k].replace("'", ""),
-                        "D:%Y%m%d%H%M%S%z").isoformat("T")
-                except ValueError:
-                    new_metadata[k] = metadata[k]
-            elif k.lower() in PyMuPDF4LLMParser._map_key:
-                # Normliaze key with others PDF parser
-                new_metadata[PyMuPDF4LLMParser._map_key[k.lower()]] = metadata[k]
-            elif isinstance(metadata[k], (str, int)):
-                new_metadata[k] = metadata[k]
-        return new_metadata
-
 
 class PyPDFium2Parser(OCRPdfParser):
     """Parse `PDF` with `PyPDFium2`."""
@@ -594,7 +595,7 @@ class PyPDFium2Parser(OCRPdfParser):
     def __init__(self,
                  *,
                  password: Optional[str] = None,
-                 # mode: Literal["flow", "page"] = "page",  # FIXME
+                 mode: Literal["flow", "page"] = "page",
                  extract_images: bool = False
                  ) -> None:
         """Initialize the parser."""
@@ -605,6 +606,7 @@ class PyPDFium2Parser(OCRPdfParser):
                 "pypdfium2 package not found, please install it with"
                 " `pip install pypdfium2`"
             )
+        self.mode = mode
         self.password = password
         self.extract_images = extract_images
 
@@ -618,6 +620,12 @@ class PyPDFium2Parser(OCRPdfParser):
             pdf_reader = pypdfium2.PdfDocument(file_path,
                                                password=self.password,
                                                autoclose=True)
+            full_content = []
+
+            doc_metadata = _purge_metadata(pdf_reader.get_metadata_dict())
+            doc_metadata["source"] = blob.source
+            doc_metadata["total_pages"] = len(pdf_reader)
+
             try:
                 for page_number, page in enumerate(pdf_reader):
                     text_page = page.get_textpage()
@@ -625,9 +633,18 @@ class PyPDFium2Parser(OCRPdfParser):
                     text_page.close()
                     content += "\n" + self._extract_images_from_page(page)
                     page.close()
-                    metadata = {"source": blob.source,
-                                "page": page_number}  # type: ignore[attr-defined]
-                    yield Document(page_content=content, metadata=metadata)
+                    if self.mode == "page":
+                        yield Document(page_content=content,
+                                       metadata={**doc_metadata,
+                                                 **{
+                                                     "page": page_number,
+                                                 }})
+                    else:
+                        full_content.append(content)
+
+                if self.mode == "flow":
+                    yield Document(page_content="".join(full_content),
+                                   metadata=doc_metadata)
             finally:
                 pdf_reader.close()
 
@@ -1129,14 +1146,14 @@ class PDFRouterParser(BaseBlobParser):
         super().__init__()
         self.password = password
         new_routes = []
-        for producer, create, page, parser in routes:
+        for producer, creator, page, parser in routes:
             if isinstance(producer, str):
                 producer = re.compile(producer)
-            if isinstance(create, str):
-                create = re.compile(create)
+            if isinstance(creator, str):
+                creator = re.compile(creator)
             if isinstance(page, str):
                 page = re.compile(page)
-            new_routes.append((producer, create, page, parser))
+            new_routes.append((producer, creator, page, parser))
         self.routes = new_routes
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
@@ -1148,18 +1165,17 @@ class PDFRouterParser(BaseBlobParser):
             with PdfReader(pdf_file_obj,
                            password=self.password) as reader:
                 if reader.metadata:
-                    producer, create = reader.metadata.producer, reader.metadata.creator
+                    producer, creator = reader.metadata.producer, reader.metadata.creator
                     page1 = reader.pages[0].extract_text()
                 for re_producer, re_create, re_page, parser in self.routes:
                     is_producer = (not re_producer
                                    or re_producer.search(producer))
-                    is_create = (not re_create
-                                 or re_create.search(create))
+                    is_creator = (not re_create
+                                  or re_create.search(creator))
                     is_page = (not re_page
                                or re_page.search(page1))
-                    if is_producer and is_create and is_page:
+                    if is_producer and is_creator and is_page:
                         yield from parser.lazy_parse(blob)
-                        break
 
 
 # %% --------- Online pdf loader ---------
