@@ -139,16 +139,19 @@ class PyPDFParser(OCRPdfParser):
 
     def __init__(
             self,
-            password: Optional[Union[str, bytes]] = None,
-            extract_images: bool = False,
-            extract_tables: bool = False,
             *,
-            extraction_mode: str = "plain",
+            password: Optional[Union[str, bytes]] = None,
+            mode: Literal["flow", "page"] = "page",
+            extract_images: bool = False,
+
+            extract_tables: bool = False,
+            extraction_mode: Literal["plain", "page"] = "plain",
             extraction_kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.password = password
         self.extract_images = extract_images
         self.extract_tables = extract_tables
+        self.mode = mode
         self.extraction_mode = extraction_mode
         self.extraction_kwargs = extraction_kwargs or {}
 
@@ -176,15 +179,25 @@ class PyPDFParser(OCRPdfParser):
         with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
             pdf_reader = pypdf.PdfReader(pdf_file_obj, password=self.password)
 
-            yield from [
-                Document(
-                    page_content=_extract_text_from_page(page=page)
-                                 + self.extract_images_from_page(page),
-                    metadata={"source": blob.source, "page": page_number},
-                    # type: ignore[attr-defined]
+            if self.mode == "page":
+                yield from [
+                    Document(
+                        page_content=_extract_text_from_page(page=page)
+                                     + self.extract_images_from_page(page),
+                        metadata={"source": blob.source, "page": page_number},
+                        # type: ignore[attr-defined]
+                    )
+                    for page_number, page in enumerate(pdf_reader.pages)
+                ]
+            elif self.mode == "flow":
+                text = "".join(
+                    _extract_text_from_page(page=page) + self.extract_images_from_page(
+                        page)
+                    for page in pdf_reader.pages
                 )
-                for page_number, page in enumerate(pdf_reader.pages)
-            ]
+                yield Document(page_content=text, metadata={"source": blob.source})
+            else:
+                raise ValueError("mode must be flow, plain or page")
 
     def extract_images_from_page(self, page: pypdf._page.PageObject) -> str:
         """Extract images from page and get the text with RapidOCR."""
@@ -214,31 +227,36 @@ class PDFMinerParser(OCRPdfParser):
     """Parse `PDF` using `PDFMiner`."""
 
     def __init__(self,
-                 extract_images: bool = False,
                  *,
+                 password: Optional[str] = None,
+                 mode: Literal["flow", "page"] = "page",
+                 extract_images: bool = False,
+
                  concatenate_pages: Optional[bool] = None,
-                 extraction_mode: Literal["plain", "page"] = "plain",
                  ):
         """Initialize a parser based on PDFMiner.
 
         Args:
             extract_images: Whether to extract images from PDF.
-            extraction_mode: Extraction mode to use. Either "plain" or "page".
+            mode: Extraction mode to use. Either "flow" or "page".
             concatenate_pages: Depreceted. If True, concatenate all PDF pages into one a single
                                document. Otherwise, return one document per page.
         """
+        if mode not in ["flow", "page"]:
+            raise ValueError("mode must be flow or page")
         self.extract_images = extract_images
-        self.extraction_mode = extraction_mode
+        self.mode = mode
+        self.password = password
         if concatenate_pages is not None:
             warnings.warn(
                 "`concatenate_pages` parameter is deprecated. "
-                "Use `extraction_mode='plain'` instead."
+                "Use `mode='flow'` instead."
             )
-            extraction_mode = "plain" if concatenate_pages else "page"
-            if extraction_mode != self.extraction_mode:
+            mode = "flow" if concatenate_pages else "page"
+            if mode != self.mode:
                 warnings.warn(
                     f"Overriding `concatenate_pages` to "
-                    f"`extraction_mode='{extraction_mode}'`")
+                    f"`mode='{mode}'`")
 
     @staticmethod
     def decode_text(s: Union[bytes, str]) -> str:
@@ -320,26 +338,29 @@ class PDFMinerParser(OCRPdfParser):
                 )
 
             with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
-                if self.extraction_mode == "plain":
-                    file_metadata = self._get_metadata(pdf_file_obj)
-                    text = extract_text(pdf_file_obj)
+                if self.mode == "flow":
+                    file_metadata = self._get_metadata(pdf_file_obj,
+                                                       password=self.password)
+                    text = extract_text(pdf_file_obj, password=self.password)
                     metadata = {**file_metadata,
                                 **{"source": blob.source}}  # type: ignore[attr-defined]
                     yield Document(page_content=text, metadata=metadata)
-                elif self.extraction_mode == "page":
+                elif self.mode == "page":
                     from pdfminer.pdfpage import PDFPage
 
-                    file_metadata = self._get_metadata(pdf_file_obj)
-                    pages = PDFPage.get_pages(pdf_file_obj)
+                    file_metadata = self._get_metadata(pdf_file_obj,
+                                                       password=self.password)
+                    pages = PDFPage.get_pages(pdf_file_obj, password=self.password)
                     for i, _ in enumerate(pages):
-                        text = extract_text(pdf_file_obj, page_numbers=[i])
+                        text = extract_text(pdf_file_obj, page_numbers=[i],
+                                            password=self.password)
                         metadata = {**file_metadata, **{"source": blob.source,
                                                         "page": str(
                                                             i)}}  # type: ignore[attr-defined]
                         yield Document(page_content=text, metadata=metadata)
                 else:
                     raise ValueError(
-                        "extraction_mode must be plain or page")
+                        "mode must be flow or page")
         else:
             import io
 
@@ -350,7 +371,7 @@ class PDFMinerParser(OCRPdfParser):
 
             text_io = io.StringIO()
             with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
-                pages = PDFPage.get_pages(pdf_file_obj)
+                pages = PDFPage.get_pages(pdf_file_obj, password=self.password)
                 rsrcmgr = PDFResourceManager()
                 device_for_text = TextConverter(rsrcmgr, text_io, laparams=LAParams())
                 device_for_image = PDFPageAggregator(rsrcmgr, laparams=LAParams())
@@ -402,14 +423,19 @@ class PyMuPDFParser(OCRPdfParser):
 
     def __init__(
             self,
-            text_kwargs: Optional[Mapping[str, Any]] = None,
+            *,
+            password: Optional[str] = None,
+            # mode: Literal["flow", "page"] = "page",  # FIXME
             extract_images: bool = False,
+
+            text_kwargs: Optional[Mapping[str, Any]] = None,
     ) -> None:
         """Initialize the parser.
 
         Args:
-            text_kwargs: Keyword arguments to pass to ``fitz.Page.get_text()``.
+            text_kwargs: Keyword arguments to pass to ``pymupdf.Page.get_text()``.
         """
+        self.password = password
         self.text_kwargs = text_kwargs or {}
         self.extract_images = extract_images
 
@@ -423,7 +449,8 @@ class PyMuPDFParser(OCRPdfParser):
                 doc = pymupdf.open(file_path)
             else:
                 doc = pymupdf.open(stream=file_path, filetype="pdf")
-
+            if doc.is_encrypted:
+                doc.authenticate(self.password)
             yield from [
                 Document(
                     page_content=self._get_page_content(doc, page, blob),
@@ -433,7 +460,7 @@ class PyMuPDFParser(OCRPdfParser):
             ]
 
     def _get_page_content(
-            self, doc: pymupdf.pymupdf.Document, page: fitz.fitz.Page, blob: Blob
+            self, doc: pymupdf.pymupdf.Document, page: pymupdf.pymupdf.Page, blob: Blob
     ) -> str:
         """
         Get the text of the page using PyMuPDF and RapidOCR and issue a warning
@@ -495,7 +522,10 @@ class PyMuPDF4LLMParser(OCRPdfParser):
 
     def __init__(
             self,
-            extraction_mode: Literal["plain", "page"] = "page",
+            *,
+            # password: Optional[str] = None,  # FIXME
+            mode: Literal["flow", "page"] = "page",
+
             to_markdown_kwargs: Optional[Mapping[str, Any]] = None,
     ) -> None:
         """Initialize the parser.
@@ -503,13 +533,14 @@ class PyMuPDF4LLMParser(OCRPdfParser):
         Args:
             text_kwargs: Keyword arguments to pass to ``fitz.Page.get_text()``.
         """
+        # self.password = password
         _to_markdown_kwargs = to_markdown_kwargs or {}
-        if extraction_mode == "plain":
+        if mode == "flow":
             del _to_markdown_kwargs["page_chunks"]
-        elif extraction_mode == "page":
+        elif mode == "page":
             _to_markdown_kwargs["page_chunks"] = True
         else:
-            raise ValueError("extraction_mode must be plain or page")
+            raise ValueError("mode must be flow or page")
         self.to_markdown_kwargs = _to_markdown_kwargs
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
@@ -560,7 +591,12 @@ class PyMuPDF4LLMParser(OCRPdfParser):
 class PyPDFium2Parser(OCRPdfParser):
     """Parse `PDF` with `PyPDFium2`."""
 
-    def __init__(self, extract_images: bool = False) -> None:
+    def __init__(self,
+                 *,
+                 password: Optional[str] = None,
+                 # mode: Literal["flow", "page"] = "page",  # FIXME
+                 extract_images: bool = False
+                 ) -> None:
         """Initialize the parser."""
         try:
             import pypdfium2  # noqa:F401
@@ -569,6 +605,7 @@ class PyPDFium2Parser(OCRPdfParser):
                 "pypdfium2 package not found, please install it with"
                 " `pip install pypdfium2`"
             )
+        self.password = password
         self.extract_images = extract_images
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
@@ -578,7 +615,9 @@ class PyPDFium2Parser(OCRPdfParser):
         # pypdfium2 is really finicky with respect to closing things,
         # if done incorrectly creates seg faults.
         with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
-            pdf_reader = pypdfium2.PdfDocument(file_path, autoclose=True)
+            pdf_reader = pypdfium2.PdfDocument(file_path,
+                                               password=self.password,
+                                               autoclose=True)
             try:
                 for page_number, page in enumerate(pdf_reader):
                     text_page = page.get_textpage()
@@ -611,10 +650,12 @@ class PDFPlumberParser(OCRPdfParser):
     def __init__(
             self,
             *,
+            password: Optional[str] = None,
+            mode: Literal["flow", "page", "layout"] = "page",
+            extract_images: bool = False,
+
             text_kwargs: Optional[Mapping[str, Any]] = None,
             extract_tables_settings: Optional[Mapping[str, Any]] = None,
-            extraction_mode: Literal["plain", "page", "layout"] = "plain",
-            extract_images: bool = False,
             extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
             dedupe: bool = False,
             include_page_breaks: bool = False,  # FIXME vs unstructured
@@ -625,6 +666,7 @@ class PDFPlumberParser(OCRPdfParser):
             text_kwargs: Keyword arguments to pass to ``pdfplumber.Page.extract_text()``
             dedupe: Avoiding the error of duplicate characters if `dedupe=True`.
         """
+        self.password = password
         self.text_kwargs = text_kwargs or {}
         self.extract_tables_settings = extract_tables_settings or {
             "vertical_strategy": "lines",
@@ -633,7 +675,7 @@ class PDFPlumberParser(OCRPdfParser):
             "intersection_x_tolerance": 15,
         }
 
-        self.extraction_mode = extraction_mode
+        self.mode = mode
         self.dedupe = dedupe
         self.extract_images = extract_images
         self.extract_tables = extract_tables
@@ -643,15 +685,16 @@ class PDFPlumberParser(OCRPdfParser):
         import pdfplumber
 
         with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
-            doc = pdfplumber.open(file_path)  # open document
-            if self.extraction_mode == "page":
+            doc = pdfplumber.open(file_path,
+                                  password=self.password)  # open document
+            if self.mode == "page":
                 yield from self._process_mode_pages(blob, doc)
-            elif self.extraction_mode == "layout":
+            elif self.mode == "layout":
                 yield from self._process_mode_layout(blob, doc)
-            elif self.extraction_mode == "plain":
+            elif self.mode == "flow":
                 yield from self._process_mode_plain(blob, doc)
             else:
-                raise ValueError("extraction_mode must be plain, layout or page")
+                raise ValueError("mode must be flow, layout or page")
 
     def _process_mode_plain(self, blob: Blob, doc: pdfplumber.pdf.PDF):
         # TODO: avec ou sans tables
@@ -846,12 +889,7 @@ class PDFPlumberParser(OCRPdfParser):
             **kwargs: Any,
     ) -> List[Union[str, List[List[str]]]]:
         """Process the page content based on dedupe."""
-        # FIXME
-        # if self.dedupe:
-        #     return page.dedupe_chars().extract_text(**self.text_kwargs)
-
         from pdfplumber.utils import text, geometry  # import WordExctractor, TextMap
-        # from pdfplumber import table
 
         # Iterate over words. If a word is in a table,
         # yield the accumulated text, and the table
@@ -1045,6 +1083,86 @@ class PDFPlumberParser(OCRPdfParser):
         return output + "\n"
 
 
+REGEX = Union[re, str]
+
+
+class PDFRouterParser(BaseBlobParser):
+    """
+    Parse PDFs using different parsers based on the metadata of the PDF.
+    The routes are defined as a list of tuples, where each tuple contains
+    the regex pattern for the producer, creator, and page, and the parser to use.
+    The parser is used if the regex pattern matches the metadata of the PDF.
+    Use the route in the correct order, as the first matching route is used.
+    Add a default route (None, None, None, parser) at the end to catch all PDFs.
+
+    Sample:
+    ```python
+    from langchain_community.document_loaders import PyPDFLoader
+    from langchain_community.document_loaders.parsers.pdf import PyMuPDFParser
+    from langchain_community.document_loaders.parsers.pdf import PyPDFium2Parser
+    from langchain_community.document_loaders.parsers import PDFPlumberParser
+    routes = [
+        ("Microsoft", "Microsoft", None, PyMuPDFParser()),
+        ("LibreOffice", None, None, PDFPlumberParser()),
+        (None, None, None, PyPDFium2Parser())
+    ]
+    loader = PDFRouterLoader(filename, routes)
+    loader.load()
+    ```
+    """
+
+    def __init__(
+            self,
+            routes: List[
+                Tuple[
+                    Optional[REGEX], Optional[REGEX], Optional[REGEX], BaseBlobParser]],
+            *,
+            password: Optional[str] = None,
+    ):
+        """Initialize with a file path."""
+        try:
+            import pypdf  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "pypdf package not found, please install it with `pip install pypdf`"
+            )
+        super().__init__()
+        self.password = password
+        new_routes = []
+        for producer, create, page, parser in routes:
+            if isinstance(producer, str):
+                producer = re.compile(producer)
+            if isinstance(create, str):
+                create = re.compile(create)
+            if isinstance(page, str):
+                page = re.compile(page)
+            new_routes.append((producer, create, page, parser))
+        self.routes = new_routes
+
+    def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
+        """Lazily parse the blob."""
+        from pypdf import PdfReader
+
+        with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
+
+            with PdfReader(pdf_file_obj,
+                           password=self.password) as reader:
+                if reader.metadata:
+                    producer, create = reader.metadata.producer, reader.metadata.creator
+                    page1 = reader.pages[0].extract_text()
+                for re_producer, re_create, re_page, parser in self.routes:
+                    is_producer = (not re_producer
+                                   or re_producer.search(producer))
+                    is_create = (not re_create
+                                 or re_create.search(create))
+                    is_page = (not re_page
+                               or re_page.search(page1))
+                    if is_producer and is_create and is_page:
+                        yield from parser.lazy_parse(blob)
+                        break
+
+
+# %% --------- Online pdf loader ---------
 class AmazonTextractPDFParser(BaseBlobParser):
     """Send `PDF` files to `Amazon Textract` and parse them.
 
@@ -1232,78 +1350,3 @@ class DocumentIntelligenceParser(BaseBlobParser):
             docs = self._generate_docs(blob, result)
 
             yield from docs
-
-
-REGEX = Union[re, str]
-
-
-class PDFRouterParser(BaseBlobParser):
-    """
-    Parse PDFs using different parsers based on the metadata of the PDF.
-    The routes are defined as a list of tuples, where each tuple contains
-    the regex pattern for the producer, creator, and page, and the parser to use.
-    The parser is used if the regex pattern matches the metadata of the PDF.
-    Use the route in the correct order, as the first matching route is used.
-    Add a default route (None, None, None, parser) at the end to catch all PDFs.
-
-    Sample:
-    ```python
-    from langchain_community.document_loaders import PyPDFLoader
-    from langchain_community.document_loaders.parsers.pdf import PyMuPDFParser
-    from langchain_community.document_loaders.parsers.pdf import PyPDFium2Parser
-    from langchain_community.document_loaders.parsers import PDFPlumberParser
-    routes = [
-        ("Microsoft", "Microsoft", None, PyMuPDFParser()),
-        ("LibreOffice", None, None, PDFPlumberParser()),
-        (None, None, None, PyPDFium2Parser())
-    ]
-    loader = PDFRouterLoader(filename, routes)
-    loader.load()
-    ```
-    """
-
-    def __init__(
-            self,
-            routes: List[
-                Tuple[
-                    Optional[REGEX], Optional[REGEX], Optional[REGEX], BaseBlobParser]],
-    ):
-        """Initialize with a file path."""
-        try:
-            import pypdf  # noqa:F401
-        except ImportError:
-            raise ImportError(
-                "pypdf package not found, please install it with `pip install pypdf`"
-            )
-        super().__init__()
-        new_routes = []
-        for producer, create, page, parser in routes:
-            if isinstance(producer, str):
-                producer = re.compile(producer)
-            if isinstance(create, str):
-                create = re.compile(create)
-            if isinstance(page, str):
-                page = re.compile(page)
-            new_routes.append((producer, create, page, parser))
-        self.routes = new_routes
-
-    def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
-        """Lazily parse the blob."""
-        from pypdf import PdfReader
-
-        with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
-
-            with PdfReader(pdf_file_obj) as reader:
-                if reader.metadata:
-                    producer, create = reader.metadata.producer, reader.metadata.creator
-                    page1 = reader.pages[0].extract_text()
-                for re_producer, re_create, re_page, parser in self.routes:
-                    is_producer = (not re_producer
-                                   or re_producer.search(producer))
-                    is_create = (not re_create
-                                 or re_create.search(create))
-                    is_page = (not re_page
-                               or re_page.search(page1))
-                    if is_producer and is_create and is_page:
-                        yield from parser.lazy_parse(blob)
-                        break
