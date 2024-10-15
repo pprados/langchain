@@ -33,6 +33,7 @@ from langchain_community.document_loaders.parsers.pdf import (
     PyPDFium2Parser,
     PyPDFParser, PyMuPDF4LLMParser, PDFRouterParser,
 )
+from langchain_core._api.deprecation import deprecated, warn_deprecated
 from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
 from langchain_core.document_loaders import BaseBlobParser
 from langchain_core.documents import Document
@@ -43,6 +44,40 @@ if TYPE_CHECKING:
     from textractor.data.text_linearization_config import TextLinearizationConfig
 
 logger = logging.getLogger(__file__)
+
+@deprecated(
+    since="0.3.X",  # TODO: update version
+    removal="1.0",
+    alternative_import="langchain_unstructured.UnstructuredPDFLoader",
+)
+class UnstructuredPDFLoader(UnstructuredFileLoader):
+    """Load `PDF` files using `Unstructured`.
+
+    You can run the loader in one of two modes: "single" and "elements".
+    If you use "single" mode, the document will be returned as a single
+    langchain Document object. If you use "elements" mode, the unstructured
+    library will split the document into elements such as Title and NarrativeText.
+    You can pass in additional unstructured kwargs after mode to apply
+    different unstructured settings.
+
+    Examples
+    --------
+    from langchain_community.document_loaders import UnstructuredPDFLoader
+
+    loader = UnstructuredPDFLoader(
+        "example.pdf", mode="elements", strategy="fast",
+    )
+    docs = loader.load()
+
+    References
+    ----------
+    https://unstructured-io.github.io/unstructured/bricks.html#partition-pdf
+    """
+
+    def _get_elements(self) -> List:
+        from unstructured.partition.pdf import partition_pdf
+
+        return partition_pdf(filename=self.file_path, **self.unstructured_kwargs)
 
 
 class BasePDFLoader(BaseLoader, ABC):
@@ -122,34 +157,18 @@ class BasePDFLoader(BaseLoader, ABC):
         return self.web_path if self.web_path is not None else self.file_path
 
 
-class UnstructuredPDFLoader(UnstructuredFileLoader):
-    """Load `PDF` files using `Unstructured`.
+@deprecated(
+    since="0.3.X",  # TODO: update version
+    removal="1.0",
+    alternative_import="langchain_unstructured.UnstructuredPDFLoader",
+)
+class OnlinePDFLoader(BasePDFLoader):
+    """Load online `PDF`."""
 
-    You can run the loader in one of two modes: "single" and "elements".
-    If you use "single" mode, the document will be returned as a single
-    langchain Document object. If you use "elements" mode, the unstructured
-    library will split the document into elements such as Title and NarrativeText.
-    You can pass in additional unstructured kwargs after mode to apply
-    different unstructured settings.
-
-    Examples
-    --------
-    from langchain_community.document_loaders import UnstructuredPDFLoader
-
-    loader = UnstructuredPDFLoader(
-        "example.pdf", mode="elements", strategy="fast",
-    )
-    docs = loader.load()
-
-    References
-    ----------
-    https://unstructured-io.github.io/unstructured/bricks.html#partition-pdf
-    """
-
-    def _get_elements(self) -> List:
-        from unstructured.partition.pdf import partition_pdf
-
-        return partition_pdf(filename=self.file_path, **self.unstructured_kwargs)
+    def load(self) -> List[Document]:
+        """Load documents."""
+        loader = UnstructuredPDFLoader(str(self.file_path))
+        return loader.load()
 
 
 class PyPDFLoader(BasePDFLoader):
@@ -171,9 +190,9 @@ class PyPDFLoader(BasePDFLoader):
             loader = PyPDFLoader(
                 file_path = "./example_data/layout-parser-paper.pdf",
                 password = "my-pasword",
-                mode = "page",
+                mode = "paged",
                 extract_images = True,
-                # headers = None,
+                # headers = None
                 # extraction_mode = "plain",
                 # extraction_kwargs = None,
             )
@@ -203,7 +222,7 @@ class PyPDFLoader(BasePDFLoader):
         .. code-block:: python
 
             docs = await loader.aload()
-            print(docs[0].page_content[:100])
+            print(docs[0].page_content[:100])8
             print(docs[0].metadata)
 
         .. code-block:: python
@@ -219,11 +238,11 @@ class PyPDFLoader(BasePDFLoader):
             file_path: str,
             *,
             password: Optional[Union[str, bytes]] = None,
-            mode: Literal["flow", "page"] = "page",
+            mode: Literal["single", "paged"] = "paged",
             extract_images: bool = False,
+            extract_tables: Optional[Literal["markdown"]] = None,
 
             headers: Optional[Dict] = None,
-            extraction_mode: Literal["plain", "layout"] = "plain",
             extraction_kwargs: Optional[Dict] = None,
     ) -> None:
         """Initialize with a file path."""
@@ -237,25 +256,22 @@ class PyPDFLoader(BasePDFLoader):
         self.parser = PyPDFParser(
             password=password,
             extract_images=extract_images,
+            extract_tables=extract_tables,
             mode=mode,
-            extraction_mode=extraction_mode,
             extraction_kwargs=extraction_kwargs,
         )
 
     def lazy_load(
-            self,
+        self,
     ) -> Iterator[Document]:
         """Lazy load given path as pages."""
         if self.web_path:
-            blob = Blob.from_data(open(self.file_path, "rb").read(),
-                                  path=self.web_path)  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
 
 
-# Legacy: only for backwards compatibility. Use PyPDFLoader instead
-PagedPDFSplitter = PyPDFLoader
 
 
 class PyPDFium2Loader(BasePDFLoader):
@@ -265,9 +281,8 @@ class PyPDFium2Loader(BasePDFLoader):
             self,
             file_path: str,
             *,
-            mode: Literal["flow", "page"] = "page",
+            mode: Literal["single", "paged"] = "paged",
             password: Optional[str] = None,
-            # mode: Literal["flow", "page"] = "page",  # FIXME
             extract_images: bool = False,
 
             headers: Optional[Dict] = None,
@@ -280,12 +295,11 @@ class PyPDFium2Loader(BasePDFLoader):
             extract_images=extract_images)
 
     def lazy_load(
-            self,
+        self,
     ) -> Iterator[Document]:
         """Lazy load given path as pages."""
         if self.web_path:
-            blob = Blob.from_data(open(self.file_path, "rb").read(),
-                                  path=self.web_path)  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.parse(blob)
@@ -300,14 +314,15 @@ class PyPDFDirectoryLoader(BaseLoader):
     def __init__(
             self,
             path: Union[str, Path],
+            *,
             glob: str = "**/[!.]*.pdf",
             silent_errors: bool = False,
             load_hidden: bool = False,
             recursive: bool = False,
-            *,
-            password: Optional[str] = None,
-            # mode: Literal["flow", "page"] = "page",  # FIXME
             extract_images: bool = False,
+            password: Optional[str] = None,
+            # mode: Literal["single", "paged"] = "paged",  # FIXME PyPDFDirectoryLoader
+            # extract_table  # FIXME: PyPDFDirectoryLoader
     ):
         self.password = password
         self.path = path
@@ -352,7 +367,7 @@ class PDFMinerLoader(BasePDFLoader):
             file_path: str,
             *,
             password: Optional[str] = None,
-            mode: Literal["flow", "page"] = "page",
+            mode: Literal["single", "paged"] = "paged",
             extract_images: bool = False,
 
             headers: Optional[Dict] = None,
@@ -382,12 +397,11 @@ class PDFMinerLoader(BasePDFLoader):
         )
 
     def lazy_load(
-            self,
+        self,
     ) -> Iterator[Document]:
         """Lazily load documents."""
         if self.web_path:
-            blob = Blob.from_data(open(self.file_path, "rb").read(),
-                                  path=self.web_path)  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
@@ -400,7 +414,7 @@ class PDFMinerPDFasHTMLLoader(BasePDFLoader):
             self,
             file_path: str, *,
             password: Optional[str] = None,
-            # mode: Literal["flow", "page"] = "page",  # FIXME
+            # mode: Literal["single", "paged"] = "paged",  # FIXME
             # extract_images: bool = False,
 
             headers: Optional[Dict] = None):
@@ -416,7 +430,7 @@ class PDFMinerPDFasHTMLLoader(BasePDFLoader):
         super().__init__(file_path, headers=headers)
         self.password = password
 
-    def lazy_load(self) -> Iterator[Document]:
+    def lazy_load(self) -> Iterator[Document]:  # FIXME: must use blob
         """Load file."""
         from pdfminer.high_level import extract_text_to_fp
         from pdfminer.layout import LAParams
@@ -446,11 +460,11 @@ class PyMuPDFLoader(BasePDFLoader):
             file_path: str,
             *,
             password: Optional[str] = None,
-            # mode: Literal["flow", "page"] = "page",  # FIXME
+            mode: Literal["single", "paged"] = "paged",
             extract_images: bool = False,
+            extract_tables: Optional[Literal["markdown"]] = None,
 
             headers: Optional[Dict] = None,
-            extract_tables: bool = False,
             extract_tables_settings: Optional[Dict[str, Any]],
             **kwargs: Any,
     ) -> None:
@@ -462,40 +476,42 @@ class PyMuPDFLoader(BasePDFLoader):
                 "`PyMuPDF` package not found, please install it with "
                 "`pip install pymupdf`"
             )
+        if mode not in ["single", "paged"]:
+            raise ValueError("mode must be single or paged")
         super().__init__(file_path, headers=headers)
-        self.password = password
-        self.extract_images = extract_images
-        self.extract_tables = extract_tables
-        self.extract_tables_settings = extract_tables_settings
-        self.text_kwargs = kwargs
-
-    def _lazy_load(self, **kwargs: Any) -> Iterator[Document]:
-        if kwargs:
-            logger.warning(
-                f"Received runtime arguments {kwargs}. Passing runtime args to `load`"
-                f" is deprecated. Please pass arguments during initialization instead."
-            )
-
-        text_kwargs = {**self.text_kwargs, **kwargs}
-        parser = PyMuPDFParser(
+        self.parser = PyMuPDFParser(
             password=self.password,
-            text_kwargs=text_kwargs,
+            mode=self.mode,
+            text_kwargs=kwargs,
             extract_images=self.extract_images,
             extract_tables=self.extract_tables,
             extract_tables_settings=self.extract_tables_settings
         )
+
+
+    def _lazy_load(self, **kwargs: Any) -> Iterator[Document]:  # FIXME: propager kwargs partout
+        if kwargs:
+            warn_deprecated(
+                since="0.2.17",
+                removal="0.3",
+                message=
+                    f"Received runtime arguments {kwargs}. Passing runtime args to `load`"
+                    f" is deprecated. Please pass arguments during initialization instead."
+            )
+            self.parser.text_kwargs.update(kwargs)
+
         if self.web_path:
-            blob = Blob.from_data(open(self.file_path, "rb").read(),
-                                  path=self.web_path)  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
-        yield from parser.lazy_parse(blob)
+        yield from self.parser.lazy_parse(blob)
 
-    def load(self, **kwargs: Any) -> List[Document]:
+    def load(self, **kwargs: Any) -> List[Document]:  # FIXME: pourquoi ?
         return list(self._lazy_load(**kwargs))
 
     def lazy_load(self) -> Iterator[Document]:
         yield from self._lazy_load()
+
 
 
 class PyMuPDF4LLMLoader(BasePDFLoader):
@@ -505,9 +521,9 @@ class PyMuPDF4LLMLoader(BasePDFLoader):
             self,
             file_path: str,
             *,
-            # password: Optional[str] = None,
-            mode: Literal["flow", "page"] = "page",
-            extract_images: bool = False,
+            password: Optional[str] = None,
+            mode: Literal["single", "paged"] = "paged",
+            # extract_images: bool = False,  # FIXME
 
             **kwargs: Any,
     ) -> None:
@@ -520,11 +536,11 @@ class PyMuPDF4LLMLoader(BasePDFLoader):
                 "`pip install pymupdf4llm`"
             )
         super().__init__(file_path)
-        # self.password = password
-        if extract_images:
-            raise NotImplemented("extract_images is not implemented yet.")
+        # if extract_images:
+        #     raise NotImplemented("extract_images is not implemented yet.")
         self.parser = PyMuPDF4LLMParser(
             mode=mode,
+            password=self.password,
             to_markdown_kwargs=kwargs)
 
     def lazy_load(
@@ -534,77 +550,6 @@ class PyMuPDF4LLMLoader(BasePDFLoader):
         blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
 
-
-class PDFPlumberLoader(BasePDFLoader):
-    """Load `PDF` files using `pdfplumber`."""
-
-    def __init__(
-            self,
-            file_path: str,
-            *,
-            password: Optional[str] = None,
-            mode: Literal["flow", "page", "layout"] = "page",
-            extract_images: bool = False,
-
-            text_kwargs: Optional[Mapping[str, Any]] = {
-                # MUST be True, but it's False for compatibility reasons
-                "use_text_flow": False,
-                "keep_blank_chars": False,
-            },
-            extract_tables_settings: Optional[Dict[str, Any]] = None,
-            dedupe: bool = False,
-            headers: Optional[Dict] = None,
-            extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
-    ) -> None:
-        """Initialize with a file path."""
-        try:
-            import pdfplumber  # noqa:F401
-        except ImportError:
-            raise ImportError(
-                "pdfplumber package not found, please install it with "
-                "`pip install pdfplumber`"
-            )
-
-        super().__init__(file_path, headers=headers)
-        self.file_path = file_path
-        self.parser = PDFPlumberParser(
-            password=password,
-            mode=mode,
-            extract_images=extract_images,
-
-            text_kwargs=text_kwargs,
-            extract_tables_settings=extract_tables_settings,
-            dedupe=dedupe,
-            extract_tables=extract_tables,
-        )
-
-    # TODO: aload_and_split
-    def load_and_split(
-            self, text_splitter: Optional[TextSplitter] = None
-    ) -> list[Document]:
-        if self.web_path:
-            blob = Blob.from_data(open(self.file_path, "rb").read(),
-                                  path=self.web_path)  # type: ignore[attr-defined]
-        else:
-            blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
-        docs = self.parser.parse(blob)
-        if text_splitter:
-            return text_splitter.split_documents(docs)
-        else:
-            return docs
-
-    def lazy_load(self) -> Iterator[Document]:
-        """Load file."""
-
-        if self.web_path:
-            blob = Blob.from_data(open(self.file_path, "rb").read(),
-                                  path=self.web_path)  # type: ignore[attr-defined]
-        else:
-            blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
-        return self.parser.lazy_parse(blob)
-
-
-REGEX = Union[re, str]
 
 
 class PDFRouterLoader(BasePDFLoader):
@@ -638,7 +583,9 @@ class PDFRouterLoader(BasePDFLoader):
             *,
             routes: List[
                 Tuple[
-                    Optional[REGEX], Optional[REGEX], Optional[REGEX], BaseBlobParser]],
+                    Optional[Union[re, str]],
+                    Optional[Union[re, str]],
+                    Optional[Union[re, str]], BaseBlobParser]],
             password: Optional[str] = None,
     ):
         """Initialize with a file path."""
@@ -663,15 +610,6 @@ class PDFRouterLoader(BasePDFLoader):
 
 
 # %% --------- Online pdf loader ---------
-class OnlinePDFLoader(BasePDFLoader):
-    """Load online `PDF`."""
-
-    def load(self) -> List[Document]:
-        """Load documents."""
-        loader = UnstructuredPDFLoader(str(self.file_path))
-        return loader.load()
-
-
 # MathpixPDFLoader implementation taken largely from Daniel Gross's:
 # https://gist.github.com/danielgross/3ab4104e14faccc12b49200843adab21
 class MathpixPDFLoader(BasePDFLoader):
@@ -780,8 +718,7 @@ class MathpixPDFLoader(BasePDFLoader):
                 # This indicates an error with the PDF processing
                 raise ValueError("Unable to retrieve PDF from Mathpix")
             else:
-                print(
-                    f"Status: {status}, waiting for processing to complete")  # noqa: T201
+                print(f"Status: {status}, waiting for processing to complete")  # noqa: T201
                 time.sleep(5)
         raise TimeoutError
 
@@ -823,57 +760,56 @@ class MathpixPDFLoader(BasePDFLoader):
         return [Document(page_content=contents, metadata=metadata)]
 
 
-class DocumentIntelligenceLoader(BasePDFLoader):
-    """Load a PDF with Azure Document Intelligence"""
+class PDFPlumberLoader(BasePDFLoader):
+    """Load `PDF` files using `pdfplumber`."""
 
     def __init__(
             self,
             file_path: str,
-            client: Any,
-            model: str = "prebuilt-document",
+            *,
+            text_kwargs: Optional[Mapping[str, Any]] = {
+                # MUST be True, but it's False for compatibility reasons
+                "use_text_flow": False,
+                "keep_blank_chars": False,
+            },
+            dedupe: bool = False,
             headers: Optional[Dict] = None,
+            extract_images: bool = False,
+
+            password: Optional[str] = None,
+            mode: Literal["single", "paged"] = "paged",
+            extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
+            extract_tables_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """
-        Initialize the object for file processing with Azure Document Intelligence
-        (formerly Form Recognizer).
+        """Initialize with a file path."""
+        try:
+            import pdfplumber  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "pdfplumber package not found, please install it with "
+                "`pip install pdfplumber`"
+            )
 
-        This constructor initializes a DocumentIntelligenceParser object to be used
-        for parsing files using the Azure Document Intelligence API. The load method
-        generates a Document node including metadata (source blob and page number)
-        for each page.
-
-        Parameters:
-        -----------
-        file_path : str
-            The path to the file that needs to be parsed.
-        client: Any
-            A DocumentAnalysisClient to perform the analysis of the blob
-        model : str
-            The model name or ID to be used for form recognition in Azure.
-
-        Examples:
-        ---------
-        >>> obj = DocumentIntelligenceLoader(
-        ...     file_path="path/to/file",
-        ...     client=client,
-        ...     model="prebuilt-document"
-        ... )
-        """
-
-        self.parser = DocumentIntelligenceParser(client=client, model=model)
         super().__init__(file_path, headers=headers)
+        self.parser = PDFPlumberParser(
+            password=password,
+            mode=mode,
+            extract_images=extract_images,
+            extract_tables=extract_tables,
 
-    def load(self) -> List[Document]:
-        """Load given path as pages."""
-        return list(self.lazy_load())
+            text_kwargs=text_kwargs,
+            extract_tables_settings=extract_tables_settings,
+            dedupe=dedupe,
+        )
 
-    def lazy_load(
-            self,
-    ) -> Iterator[Document]:
-        """Lazy load given path as pages."""
-        blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
-        yield from self.parser.parse(blob)
-
+    # TODO: aload_and_split
+    def load_and_split(
+            self, text_splitter: Optional[TextSplitter] = None
+    ) -> list[Document]:
+        if text_splitter:
+            return text_splitter.split_documents(list(self.lazy_load()))
+        else:
+            return list(self.lazy_load())
 
 class AmazonTextractPDFLoader(BasePDFLoader):
     """Load `PDF` files from a local file system, HTTP or S3.
@@ -978,7 +914,7 @@ class AmazonTextractPDFLoader(BasePDFLoader):
         return list(self.lazy_load())
 
     def lazy_load(
-            self,
+        self,
     ) -> Iterator[Document]:
         """Lazy load documents"""
         # the self.file_path is local, but the blob has to include
@@ -986,8 +922,7 @@ class AmazonTextractPDFLoader(BasePDFLoader):
         # raises ValueError when multi-page and not on S3"""
 
         if self.web_path and self._is_s3_url(self.web_path):
-            blob = Blob(
-                path=self.web_path)  # type: ignore[call-arg] # type: ignore[misc]
+            blob = Blob(path=self.web_path)  # type: ignore[call-arg] # type: ignore[misc]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
             if AmazonTextractPDFLoader._get_number_of_pages(blob) > 1:
@@ -1023,8 +958,7 @@ class AmazonTextractPDFLoader(BasePDFLoader):
         elif blob.mimetype in ["image/png", "image/jpeg"]:  # type: ignore[attr-defined]
             return 1
         else:
-            raise ValueError(
-                f"unsupported mime type: {blob.mimetype}")  # type: ignore[attr-defined]
+            raise ValueError(f"unsupported mime type: {blob.mimetype}")  # type: ignore[attr-defined]
 
 
 class DedocPDFLoader(DedocBaseLoader):
@@ -1123,3 +1057,65 @@ class DedocPDFLoader(DedocBaseLoader):
             parsing_params=self.parsing_parameters,
             split=self.split,
         )
+
+
+class DocumentIntelligenceLoader(BasePDFLoader):
+    """Load a PDF with Azure Document Intelligence"""
+
+    def __init__(
+            self,
+            file_path: str,
+            client: Any,
+            model: str = "prebuilt-document",
+            headers: Optional[Dict] = None,
+    ) -> None:
+        """
+        Initialize the object for file processing with Azure Document Intelligence
+        (formerly Form Recognizer).
+
+        This constructor initializes a DocumentIntelligenceParser object to be used
+        for parsing files using the Azure Document Intelligence API. The load method
+        generates a Document node including metadata (source blob and page number)
+        for each page.
+
+        Parameters:
+        -----------
+        file_path : str
+            The path to the file that needs to be parsed.
+        client: Any
+            A DocumentAnalysisClient to perform the analysis of the blob
+        model : str
+            The model name or ID to be used for form recognition in Azure.
+
+        Examples:
+        ---------
+        >>> obj = DocumentIntelligenceLoader(
+        ...     file_path="path/to/file",
+        ...     client=client,
+        ...     model="prebuilt-document"
+        ... )
+        """
+
+        self.parser = DocumentIntelligenceParser(client=client, model=model)
+        super().__init__(file_path, headers=headers)
+
+    def load(self) -> List[Document]:
+        """Load given path as pages."""
+        return list(self.lazy_load())
+
+    def lazy_load(
+        self,
+    ) -> Iterator[Document]:
+        """Lazy load given path as pages."""
+        blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
+        yield from self.parser.parse(blob)
+
+
+# Legacy: only for backwards compatibility. Use PyPDFLoader instead
+@deprecated(
+    since="0.0.30",
+    removal="1.0",
+    alternative="PyPDFLoader",
+)
+class PagedPDFSplitter(PyPDFLoader):
+    pass

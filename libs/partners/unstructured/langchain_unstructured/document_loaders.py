@@ -6,19 +6,182 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import IO, Any, Callable, Iterator, Optional, cast
+from typing import IO, Any, Callable, Iterator, Optional, cast, Literal, Union, Dict
 
-from langchain_core.document_loaders.base import BaseLoader
-from langchain_core.documents import Document
-from typing_extensions import TypeAlias
+from typing_extensions import TypeAlias, List
 from unstructured_client import UnstructuredClient  # type: ignore
 from unstructured_client.models import operations, shared  # type: ignore
+
+from langchain_community.document_loaders.blob_loaders import Blob
+from langchain_community.document_loaders.pdf import BasePDFLoader
+from langchain_core.document_loaders.base import BaseLoader, BaseBlobParser
+from langchain_core.documents import Document
 
 Element: TypeAlias = Any
 
 logger = logging.getLogger(__file__)
 
 _DEFAULT_URL = "https://api.unstructuredapp.io/general/v0/general"
+
+class UnstructuredPDFParser(BaseBlobParser):
+    """Unstructured document loader interface.
+
+    Setup:
+        Install ``langchain-unstructured`` and set environment variable ``UNSTRUCTURED_API_KEY``.
+
+        .. code-block:: bash
+            pip install -U langchain-unstructured
+            export UNSTRUCTURED_API_KEY="your-api-key"
+
+    Instantiate:
+        .. code-block:: python
+            from langchain_unstructured import UnstructuredPDFParser
+
+            loader = UnstructuredPDFParser(
+                file_path = "example.pdf",
+                api_key=UNSTRUCTURED_API_KEY,
+                partition_via_api=True,
+                chunking_strategy="by_title",
+                strategy="fast",
+            )
+
+    Lazy load:
+        .. code-block:: python
+
+            docs = []
+            docs_lazy = loader.lazy_load()
+
+            # async variant:
+            # docs_lazy = await loader.alazy_load()
+
+            for doc in docs_lazy:
+                docs.append(doc)
+            print(docs[0].page_content[:100])
+            print(docs[0].metadata)
+
+        .. code-block:: python
+
+            1 2 0 2
+            {'source': './example_data/layout-parser-paper.pdf', 'coordinates': {'points': ((16.34, 213.36), (16.34, 253.36), (36.34, 253.36), (36.34, 213.36)), 'system': 'PixelSpace', 'layout_width': 612, 'layout_height': 792}, 'file_directory': './example_data', 'filename': 'layout-parser-paper.pdf', 'languages': ['eng'], 'last_modified': '2024-07-25T21:28:58', 'page_number': 1, 'filetype': 'application/pdf', 'category': 'UncategorizedText', 'element_id': 'd3ce55f220dfb75891b4394a18bcb973'}
+
+
+    Async load:
+        .. code-block:: python
+
+            docs = await loader.aload()
+            print(docs[0].page_content[:100])
+            print(docs[0].metadata)
+
+        .. code-block:: python
+
+            1 2 0 2
+            {'source': './example_data/layout-parser-paper.pdf', 'coordinates': {'points': ((16.34, 213.36), (16.34, 253.36), (36.34, 253.36), (36.34, 213.36)), 'system': 'PixelSpace', 'layout_width': 612, 'layout_height': 792}, 'file_directory': './example_data', 'filename': 'layout-parser-paper.pdf', 'languages': ['eng'], 'last_modified': '2024-07-25T21:28:58', 'page_number': 1, 'filetype': 'application/pdf', 'category': 'UncategorizedText', 'element_id': 'd3ce55f220dfb75891b4394a18bcb973'}
+
+
+    Load URL:
+        .. code-block:: python
+
+            loader = UnstructuredLoader(web_url="https://www.example.com/")
+            print(docs[0])
+
+        .. code-block:: none
+
+            page_content='Example Domain' metadata={'category_depth': 0, 'languages': ['eng'], 'filetype': 'text/html', 'url': 'https://www.example.com/', 'category': 'Title', 'element_id': 'fdaa78d856f9d143aeeed85bf23f58f8'}
+
+        .. code-block:: python
+
+            print(docs[1])
+
+        .. code-block:: none
+
+            page_content='This domain is for use in illustrative examples in documents. You may use this domain in literature without prior coordination or asking for permission.' metadata={'languages': ['eng'], 'parent_id': 'fdaa78d856f9d143aeeed85bf23f58f8', 'filetype': 'text/html', 'url': 'https://www.example.com/', 'category': 'NarrativeText', 'element_id': '3652b8458b0688639f973fe36253c992'}
+
+    """
+
+    def __init__(
+            self,
+            *,
+            password: Optional[str] = None,  # FIXME PPR https://github.com/Unstructured-IO/unstructured/pull/3721
+            mode: Literal["single", "paged", "elements"] = "single",
+            extract_images: bool = False,
+            client: UnstructuredClient,
+            partition_via_api: bool = False,
+            post_processors: Optional[list[Callable[[str], str]]] = None,
+            **unstructured_kwargs: Any,
+
+    ) -> None:
+        """Initialize the parser.
+
+        Args:
+        """
+        self.password = password
+        _valid_modes = {"single", "elements", "paged"}
+        if mode not in _valid_modes:
+            raise ValueError(
+                f"Got {mode} for `mode`, but should be one of `{_valid_modes}`"
+            )
+        self.mode = mode
+        if extract_images and unstructured_kwargs.get("strategy") == "fast":
+            logger.warning("Change strategy to 'auto' to extract images")
+            unstructured_kwargs["strategy"] = "auto"
+        if extract_images:
+            unstructured_kwargs["extract_images_in_pdf"] = True
+        self.client = client
+        self.partition_via_api = partition_via_api
+        self.post_processors = post_processors
+        self.unstructured_kwargs = unstructured_kwargs
+
+    def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
+        """Lazily parse the blob."""
+        with blob.as_bytes_io() as pdf_file_obj:
+            yield from _SingleDocumentLoader(
+                file=pdf_file_obj,
+                password=self.password,
+                client=self.client,
+                partition_via_api=self.partition_via_api,
+                post_processors=self.post_processors,
+                metadata_filename=blob.path or blob.metadata.get("source"),
+                **self.unstructured_kwargs,
+            ).lazy_load()
+
+
+class UnstructuredPDFLoader(BasePDFLoader):
+    def __init__(self,
+                 file_path: Union[str, List[str], Path, List[Path]],
+                 *,
+                 headers: Optional[Dict] = None,
+                 mode: Literal["single", "paged", "elements"] = "single",
+                 extract_images: bool = False,
+                 partition_via_api: bool = False,
+                 post_processors: Optional[list[Callable[[str], str]]] = None,
+                 # SDK parameters
+                 api_key: Optional[str] = None,
+                 client: Optional[UnstructuredClient] = None,
+                 password:Optional[str] = None,
+                 **unstructured_kwargs: Any,
+                 ) -> None:
+        super().__init__(file_path, headers=headers)
+
+        self.parser = UnstructuredPDFParser(
+            mode=mode,
+            extract_images=extract_images,
+            client=client,
+            partition_via_api=partition_via_api,
+            post_processors=post_processors,
+            password=password,
+            **unstructured_kwargs,
+        )
+
+    def lazy_load(
+            self,
+    ) -> Iterator[Document]:
+        """Lazy load given path as pages."""
+        if self.web_path:
+            blob = Blob.from_data(open(self.file_path, "rb").read(),
+                                  path=self.web_path)  # type: ignore[attr-defined]
+        else:
+            blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
+        yield from self.parser.lazy_parse(blob)
 
 
 class UnstructuredLoader(BaseLoader):
@@ -104,18 +267,18 @@ class UnstructuredLoader(BaseLoader):
     """  # noqa: E501
 
     def __init__(
-        self,
-        file_path: Optional[str | Path | list[str] | list[Path]] = None,
-        *,
-        file: Optional[IO[bytes] | list[IO[bytes]]] = None,
-        partition_via_api: bool = False,
-        post_processors: Optional[list[Callable[[str], str]]] = None,
-        # SDK parameters
-        api_key: Optional[str] = None,
-        client: Optional[UnstructuredClient] = None,
-        url: Optional[str] = None,
-        web_url: Optional[str] = None,
-        **kwargs: Any,
+            self,
+            file_path: Optional[str | Path | list[str] | list[Path]] = None,
+            *,
+            file: Optional[IO[bytes] | list[IO[bytes]]] = None,
+            partition_via_api: bool = False,
+            post_processors: Optional[list[Callable[[str], str]]] = None,
+            # SDK parameters
+            api_key: Optional[str] = None,
+            client: Optional[UnstructuredClient] = None,
+            url: Optional[str] = None,
+            web_url: Optional[str] = None,
+            **kwargs: Any,
     ):
         """Initialize loader."""
         if file_path is not None and file is not None:
@@ -151,7 +314,7 @@ class UnstructuredLoader(BaseLoader):
         """Load file(s) to the _UnstructuredBaseLoader."""
 
         def load_file(
-            f: Optional[IO[bytes]] = None, f_path: Optional[str | Path] = None
+                f: Optional[IO[bytes]] = None, f_path: Optional[str | Path] = None
         ) -> Iterator[Document]:
             """Load an individual file to the _UnstructuredBaseLoader."""
             return _SingleDocumentLoader(
@@ -186,18 +349,20 @@ class _SingleDocumentLoader(BaseLoader):
     """
 
     def __init__(
-        self,
-        file_path: Optional[str | Path] = None,
-        *,
-        client: UnstructuredClient,
-        file: Optional[IO[bytes]] = None,
-        partition_via_api: bool = False,
-        post_processors: Optional[list[Callable[[str], str]]] = None,
-        **kwargs: Any,
+            self,
+            file_path: Optional[str | Path] = None,
+            *,
+            client: UnstructuredClient,
+            file: Optional[IO[bytes]] = None,
+            partition_via_api: bool = False,
+            post_processors: Optional[list[Callable[[str], str]]] = None,
+            password: Optional[str] = None,
+            **kwargs: Any,
     ):
         """Initialize loader."""
         self.file_path = str(file_path) if isinstance(file_path, Path) else file_path
         self.file = file
+        self.password = password
         self.partition_via_api = partition_via_api
         self.post_processors = post_processors
         # SDK parameters
@@ -221,6 +386,17 @@ class _SingleDocumentLoader(BaseLoader):
             yield Document(
                 page_content=cast(str, element.get("text")), metadata=metadata
             )
+        # TODO:
+        # for element in elements:
+        #   if element.to_dict()['type'] == 'Table':
+        #     table_content = element.to_dict()['text']
+        #
+        #     # Get description and markdown table from GPT-4o
+        #     result = get_table_description(table_content, document_content)
+        #     # Replace each Table elements text with the new description
+        #     element.text = result
+        #
+        # print("Processing complete.")
 
     @property
     def _elements_json(self) -> list[dict[str, Any]]:
@@ -247,7 +423,8 @@ class _SingleDocumentLoader(BaseLoader):
             )
 
         return partition(
-            file=self.file, filename=self.file_path, **self.unstructured_kwargs
+            file=self.file, filename=self.file_path, password=self.password,
+            **self.unstructured_kwargs
         )  # type: ignore
 
     @property
@@ -284,7 +461,7 @@ class _SingleDocumentLoader(BaseLoader):
         )
 
     def _convert_elements_to_dicts(
-        self, elements: list[Element]
+            self, elements: list[Element]
     ) -> list[dict[str, Any]]:
         return [element.to_dict() for element in elements]
 
@@ -293,7 +470,7 @@ class _SingleDocumentLoader(BaseLoader):
         return {"source": self.file_path} if self.file_path else {}
 
     def _post_process_elements_json(
-        self, elements_json: list[dict[str, Any]]
+            self, elements_json: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """Apply post processing functions to extracted unstructured elements.
 

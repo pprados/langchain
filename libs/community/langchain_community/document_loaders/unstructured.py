@@ -6,7 +6,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import IO, Any, Callable, Iterator, List, Optional, Sequence, Union
+from typing import IO, Any, Callable, Iterator, List, Optional, Sequence, Union, Literal
 
 from langchain_core._api.deprecation import deprecated
 from langchain_core.documents import Document
@@ -50,7 +50,7 @@ class UnstructuredBaseLoader(BaseLoader, ABC):
 
     def __init__(
         self,
-        mode: str = "single",  # deprecated
+        mode: Literal["single", "elements", "paged"] = "single",  # deprecated
         post_processors: Optional[List[Callable[[str], str]]] = None,
         **unstructured_kwargs: Any,
     ):
@@ -128,6 +128,8 @@ class UnstructuredBaseLoader(BaseLoader, ABC):
             meta_dict: dict[int, dict[str, Any]] = {}
 
             for element in elements:
+                if element.category == "PageBreak":
+                    continue
                 metadata = self._get_metadata()
                 if hasattr(element, "metadata"):
                     metadata.update(element.metadata.to_dict())
@@ -204,7 +206,7 @@ class UnstructuredFileLoader(UnstructuredBaseLoader):
         self,
         file_path: Union[str, List[str], Path, List[Path]],
         *,
-        mode: str = "single",
+        mode: Literal["single", "elements", "paged"] = "single",
         **unstructured_kwargs: Any,
     ):
         """Initialize with file path."""
