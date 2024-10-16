@@ -104,9 +104,13 @@ class UnstructuredPDFParser(BaseBlobParser):
             password: Optional[str] = None,  # FIXME PPR https://github.com/Unstructured-IO/unstructured/pull/3721
             mode: Literal["single", "paged", "elements"] = "single",
             extract_images: bool = False,
-            client: UnstructuredClient,
             partition_via_api: bool = False,
             post_processors: Optional[list[Callable[[str], str]]] = None,
+            # SDK parameters
+            api_key: Optional[str] = None,
+            client: Optional[UnstructuredClient],
+            url: Optional[str] = None,
+            web_url: Optional[str] = None,
             **unstructured_kwargs: Any,
 
     ) -> None:
@@ -114,6 +118,24 @@ class UnstructuredPDFParser(BaseBlobParser):
 
         Args:
         """
+        if client is not None:
+            disallowed_params = [("api_key", api_key), ("url", url)]
+            bad_params = [
+                param for param, value in disallowed_params if value is not None
+            ]
+
+            if bad_params:
+                raise ValueError(
+                    "if you are passing a custom `client`, you cannot also pass these "
+                    f"params: {', '.join(bad_params)}."
+                )
+
+        unstructured_api_key = api_key or os.getenv("UNSTRUCTURED_API_KEY") or ""
+        unstructured_url = url or os.getenv("UNSTRUCTURED_URL") or _DEFAULT_URL
+        self.client = client or UnstructuredClient(
+            api_key_auth=unstructured_api_key, server_url=unstructured_url
+        )
+
         self.password = password
         _valid_modes = {"single", "elements", "paged"}
         if mode not in _valid_modes:
@@ -131,17 +153,27 @@ class UnstructuredPDFParser(BaseBlobParser):
         self.post_processors = post_processors
         self.unstructured_kwargs = unstructured_kwargs
 
+        self.client = client or UnstructuredClient(
+            api_key_auth=unstructured_api_key, server_url=unstructured_url
+        )
+        if web_url:
+            self.unstructured_kwargs["url"] = web_url
+
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
         """Lazily parse the blob."""
+        unstructured_kwargs = self.unstructured_kwargs.copy()
+        if not self.partition_via_api:
+            unstructured_kwargs["metadata_filename"] = (
+                    blob.path or blob.metadata.get("source"))
         with blob.as_bytes_io() as pdf_file_obj:
             yield from _SingleDocumentLoader(
                 file=pdf_file_obj,
                 password=self.password,
-                client=self.client,
                 partition_via_api=self.partition_via_api,
                 post_processors=self.post_processors,
-                metadata_filename=blob.path or blob.metadata.get("source"),
-                **self.unstructured_kwargs,
+                # SDK parameters
+                client=self.client,
+                **unstructured_kwargs,
             ).lazy_load()
 
 
@@ -169,6 +201,7 @@ class UnstructuredPDFLoader(BasePDFLoader):
             partition_via_api=partition_via_api,
             post_processors=post_processors,
             password=password,
+            api_key=api_key,
             **unstructured_kwargs,
         )
 
