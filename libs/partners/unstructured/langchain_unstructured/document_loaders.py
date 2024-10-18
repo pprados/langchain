@@ -147,7 +147,10 @@ class UnstructuredPDFParser(BaseBlobParser):
             logger.warning("Change strategy to 'auto' to extract images")
             unstructured_kwargs["strategy"] = "auto"
         if extract_images:
-            unstructured_kwargs["extract_images_in_pdf"] = True
+            if partition_via_api:
+                logger.warning("extract_images is not supported with partition_via_api")
+            else:
+                unstructured_kwargs["extract_images_in_pdf"] = True
         self.client = client
         self.partition_via_api = partition_via_api
         self.post_processors = post_processors

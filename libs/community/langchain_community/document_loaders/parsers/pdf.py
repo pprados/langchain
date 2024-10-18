@@ -1,4 +1,5 @@
 """Module contains common parsers for PDFs."""
+import base64
 import html
 import logging
 import re
@@ -14,10 +15,14 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
-    Union, List, Tuple, Literal, BinaryIO, )
+    Union, List, Tuple, Literal, BinaryIO, Callable, )
 from urllib.parse import urlparse
 
 import numpy as np
+import pdfplumber
+import pymupdf
+import pypdf  # PPR
+import pypdfium2
 
 from langchain_community.document_loaders.base import BaseBlobParser
 from langchain_community.document_loaders.blob_loaders import Blob
@@ -25,12 +30,10 @@ from langchain_core._api.deprecation import (
     deprecated,
 )
 from langchain_core.documents import Document
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage
+from langchain_core.prompts import PromptTemplate, BasePromptTemplate
 
-import pypdf # PPR
-import pdfminer
-import pymupdf
-import pypdfium2
-import pdfplumber
 if TYPE_CHECKING:
     import pymupdf.pymupdf
     import pdfminer.layout
@@ -85,7 +88,7 @@ def _purge_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 
 
 @deprecated(since="3.0.0",
-            alternative="Use Parser.convert_image_to_text()")
+            alternative="Use Parser.images_to_text()")
 def extract_from_images_with_rapidocr(
         images: Sequence[Union[Iterable[np.ndarray], bytes]],
 ) -> str:
@@ -117,13 +120,28 @@ def extract_from_images_with_rapidocr(
     return text
 
 
-class OCRPdfParser(BaseBlobParser):
-    """Abstract interface for blob parsers with OCR."""
+# Type to change the function to convert images to text.
+CONVERT_IMAGE_TO_TEXT = Optional[Callable[
+    [
+        Sequence[
+            Union[Iterable[np.ndarray], bytes]
+        ]
+    ],
+    Iterator[str]]]
 
-    def convert_image_to_text(
-            self,
-            images: Sequence[Union[Iterable[np.ndarray], bytes]],
-    ) -> str:
+
+def convert_images_to_text(
+        # Default to text format to be compatible with previous versions.
+        format: Literal["text", "markdown"] = "text"
+) -> CONVERT_IMAGE_TO_TEXT:
+    """
+        Return a function to convert images to text using RapidOCR.
+        Note: RapidOCR is compatible english and chinese languages.
+        Args:
+            format: Format of the output text. Either "text" or "markdown".
+    """
+    def _convert_images_to_text(images: Sequence[Union[Iterable[np.ndarray], bytes]]) -> \
+            Iterator[str]:
         """Extract text from images.
         Can be overloaded to use another OCR algorithm, or to use
         a multimodal model to describe the images.
@@ -131,8 +149,8 @@ class OCRPdfParser(BaseBlobParser):
         Args:
             images: Images to extract text from.
 
-        Returns:
-            Text extracted from images.
+        Yield:
+            Text extracted from each image.
 
         Raises:
             ImportError: If `rapidocr-onnxruntime` package is not installed.
@@ -145,16 +163,106 @@ class OCRPdfParser(BaseBlobParser):
                 "`pip install rapidocr-onnxruntime`"
             )
         ocr = RapidOCR()
-        text = ""
+
         for img in images:
-            result, _ = ocr(img)
-            if result:
-                result = [text[1] for text in result]
-                text += "\n".join(result)
-        return text
+            ocr_result, _ = ocr(img)
+            if ocr_result:
+                result = "\n".join([text[1] for text in ocr_result])
+                if format == "markdown":
+                    result = f"![{result}]()"
+                logger.debug(f"RapidOCR text: " + result.replace('\n','\\n'))
+                yield result
+
+    return _convert_images_to_text
 
 
-class PyPDFParser(OCRPdfParser):
+_prompt_images_to_description = PromptTemplate.from_template(
+    """You are an assistant tasked with summarizing images for retrieval. \
+    These summaries will be embedded and used to retrieve the raw image. \
+    Give a concise summary of the image that is well optimized for retrieval \
+    and extract all the text from the image."""
+)
+
+
+def convert_images_to_description(
+        model: BaseChatModel,
+        prompt: BasePromptTemplate = _prompt_images_to_description,
+        format: Literal["text", "markdown"] = "markdown"
+) -> CONVERT_IMAGE_TO_TEXT:
+    """
+    Return a function to convert images to text using a multimodal model.
+        Args:
+            model: Multimodal model to use to describe the images.
+            prompt: Optional prompt to use to describe the images.
+            format: Format of the output text. Either "text" or "markdown".
+
+        Returns:
+            A function to extract text from images using the multimodal model.
+    """
+    def _convert_images_to_description(
+            images: Sequence[Union[Iterable[np.ndarray], bytes]],
+    ) -> Iterator[str]:
+        """Describe an image and extract text.
+        Use a multimodal model to describe the images.
+
+        Args:
+            images: Images to extract text from.
+
+        Yield:
+            Text extracted from each image.
+
+        Raises:
+            ImportError: If `rapidocr-onnxruntime` package is not installed.
+        """
+
+        chat = model
+        for image in images:
+            if isinstance(image, bytes):
+                img_base64 = base64.b64encode(image).decode("utf-8")
+            elif isinstance(image, np.ndarray):
+                img_base64 = base64.b64encode(image.tobytes()).decode("utf-8")
+            msg = chat.invoke(
+                [
+                    HumanMessage(
+                        content=[
+                            {"type": "text", "text": prompt.format()},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{img_base64}"},
+                            },
+                        ]
+                    )
+                ]
+            )
+            if format == "text":
+                result = msg.content
+            elif format == "markdown":
+                result = f"![{msg.content}]()"
+            logger.debug(f"Image description: " + result.replace('\n', '\\n'))
+            yield result
+
+    return _convert_images_to_description
+
+
+class ImagesPdfParser(BaseBlobParser):
+    """Abstract interface for blob parsers with OCR."""
+
+    def __init__(self,
+                 extract_images: bool,
+                 images_to_text: CONVERT_IMAGE_TO_TEXT,
+                 ):
+        """Extract text from images.
+
+        Args:
+            extract_images: Whether to extract images from PDF.
+            images_to_text: Function to extract text from images.
+        """
+        self.extract_images = extract_images
+        self.convert_image_to_text = images_to_text or convert_images_to_text()
+
+
+class PyPDFParser(ImagesPdfParser):
     """Load `PDF` using `pypdf`"""
 
     def __init__(
@@ -163,31 +271,47 @@ class PyPDFParser(OCRPdfParser):
             extract_images: bool = False,
             *,  # Move on top ?
             mode: Literal["single", "paged"] = "paged",
+            pages_delimitor: str = "\n\n",
+            images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             extract_tables: Optional[Literal["markdown"]] = None,
 
             extraction_mode: Literal["plain", "layout"] = "plain",
             extraction_kwargs: Optional[Dict[str, Any]] = None,
     ):
+        """Initialize a parser based on PyPDF.
+
+        Args:
+            password: Password to open the PDF.
+            mode: Extraction mode to use. Either "single" or "paged".
+            pages_delimitor: Delimitor to use between pages.
+            May be <!--PAGE BREAK -->
+            extract_images: Whether to extract images from PDF.
+            images_to_text: Function to extract text from images.
+            extract_tables: Whether to extract tables from PDF.
+
+            extraction_mode: PyPDF extraction mode to use. Either "plain" or "layout".
+            extraction_kwargs: Keyword arguments to pass to the PyPDF extraction method.
+        """
+        try:
+            import pypdf  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "pypdf package not found, please install it with `pip install pypdf`"
+            )
+        super().__init__(extract_images, images_to_text)
         if mode not in ["single", "paged"]:
             raise ValueError("mode must be single or paged")
         if extract_tables and extract_tables not in ["markdown"]:
             raise ValueError("mode must be markdown")
         self.password = password
-        self.extract_images = extract_images
         self.extract_tables = extract_tables
         self.mode = mode
+        self.pages_delimitor = pages_delimitor
         self.extraction_mode = extraction_mode
         self.extraction_kwargs = extraction_kwargs or {}
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
         """Lazily parse the blob."""
-        try:
-            import pypdf
-        except ImportError:
-            raise ImportError(
-                "`pypdf` package not found, please install it with "
-                "`pip install pypdf`"
-            )
 
         def _extract_text_from_page(page: "PageObject") -> str:
             """
@@ -215,7 +339,7 @@ class PyPDFParser(OCRPdfParser):
                     for page_number, page in enumerate(pdf_reader.pages)
                 )
             elif self.mode == "single":
-                text = "".join(
+                text = self.pages_delimitor.join(
                     _extract_text_from_page(page=page) + self.extract_images_from_page(
                         page)
                     for page in pdf_reader.pages
@@ -245,31 +369,42 @@ class PyPDFParser(OCRPdfParser):
                     images.append(xObject[obj].get_data())
                 else:
                     warnings.warn("Unknown PDF Filter!")
-        return self.convert_image_to_text(images)
+        return "\n\n".join([text for text in self.convert_image_to_text(images)])
 
 
-class PDFMinerParser(OCRPdfParser):
+class PDFMinerParser(ImagesPdfParser):
     """Parse `PDF` using `PDFMiner`."""
 
     def __init__(self,
                  *,
                  password: Optional[str] = None,
                  mode: Literal["single", "paged"] = "paged",
+                 pages_delimitor: str = "\n\n",
                  extract_images: bool = False,
+                 images_to_text: CONVERT_IMAGE_TO_TEXT = None,
 
                  concatenate_pages: Optional[bool] = None,
                  ):
         """Initialize a parser based on PDFMiner.
 
         Args:
+            password: Password to open the PDF.
             extract_images: Whether to extract images from PDF.
+            images_to_text: Function to extract text from images.
             mode: Extraction mode to use. Either "single" or "paged".
-            concatenate_pages: Depreceted. If True, concatenate all PDF pages into one a single
+            pages_delimitor: Delimitor to use between pages.
+            concatenatef_pages: Deprecated. If True, concatenate all PDF pages into one a single
                                document. Otherwise, return one document per page.
         """
+        try:
+            import pdfminer  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "pdfminer package not found, please install it with `pip install pdfminer`"
+            )
+        super().__init__(extract_images, images_to_text)
         if mode not in ["single", "paged"]:
             raise ValueError("mode must be single or paged")
-        self.extract_images = extract_images
         self.mode = mode
         self.password = password
         if concatenate_pages is not None:
@@ -278,6 +413,7 @@ class PDFMinerParser(OCRPdfParser):
                 "Use `mode='single'` instead."
             )
             mode = "single" if concatenate_pages else "paged"
+            self.pages_delimitor = pages_delimitor
             if mode != self.mode:
                 warnings.warn(
                     f"Overriding `concatenate_pages` to "
@@ -354,22 +490,22 @@ class PDFMinerParser(OCRPdfParser):
         """Lazily parse the blob."""
 
         if not self.extract_images:
-            try:
-                from pdfminer.high_level import extract_text
-            except ImportError:
-                raise ImportError(
-                    "`pdfminer` package not found, please install it with "
-                    "`pip install pdfminer.six`"
-                )
+            from pdfminer.high_level import extract_text
 
             with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
                 if self.mode == "single":
+                    from pdfminer.pdfpage import PDFPage
+
                     file_metadata = self._get_metadata(pdf_file_obj,
                                                        password=self.password)
-                    text = extract_text(pdf_file_obj, password=self.password)
-                    metadata = {**file_metadata,
-                                **{"source": blob.source}}  # type: ignore[attr-defined]
-                    yield Document(page_content=text, metadata=metadata)
+                    pages = PDFPage.get_pages(pdf_file_obj, password=self.password)
+                    result=[]
+                    for i, _ in enumerate(pages):
+                        text = extract_text(pdf_file_obj, page_numbers=[i],
+                                            password=self.password)
+                        result.append(text)
+                    yield Document(page_content=self.pages_delimitor.join(result),
+                                   metadata=file_metadata)
                 elif self.mode == "paged":
                     from pdfminer.pdfpage import PDFPage
 
@@ -395,6 +531,7 @@ class PDFMinerParser(OCRPdfParser):
             from pdfminer.pdfpage import PDFPage
 
             text_io = io.StringIO()
+            # TODO: voir les modes non traité
             with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
                 pages = PDFPage.get_pages(pdf_file_obj, password=self.password)
                 rsrcmgr = PDFResourceManager()
@@ -441,10 +578,10 @@ class PDFMinerParser(OCRPdfParser):
                 images.append(img.stream.get_data())
             else:
                 warnings.warn("Unknown PDF Filter!")
-        return self.convert_image_to_text(images)
+        return "\n\n".join(text for text in self.convert_image_to_text(images))
 
 
-class PyMuPDFParser(OCRPdfParser):
+class PyMuPDFParser(ImagesPdfParser):
     """Parse `PDF` using `PyMuPDF`."""
 
     # PyMuPDF is not thread safe.
@@ -488,23 +625,40 @@ class PyMuPDFParser(OCRPdfParser):
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
+            pages_delimitor: str = "\n\n",
             extract_images: bool = False,
+            images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             extract_tables: Optional[Literal["markdown"]] = None,
-            extract_tables_settings: Optional[Dict[str, Any]],
 
+            extract_tables_settings: Optional[Dict[str, Any]],
             text_kwargs: Optional[Mapping[str, Any]] = None,
     ) -> None:
         """Initialize the parser.
 
         Args:
+            password: Password to open the PDF.
+            mode: Extraction mode to use. Either "single" or "paged".
+            pages_delimitor: Delimitor to use between pages.
+            extract_images: Whether to extract images from PDF.
+            images_to_text: Function to extract text from images.
+            extract_tables_settings: Whether to extract tables from PDF.
             text_kwargs: Keyword arguments to pass to ``fitz.Page.get_text()``.
         """
+        try:
+            import pymupdf  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "pymupdf package not found, please install it with `pip install pymupdf`"
+            )
+
+        super().__init__(extract_images, images_to_text)
         if mode not in ["single", "paged"]:
             raise ValueError("mode must be single or paged")
         if extract_tables and extract_tables not in ["markdown"]:
             raise ValueError("mode must be markdown")
 
         self.mode = mode
+        self.pages_delimitor = pages_delimitor
         self.password = password  # PPR: https://github.com/pymupdf/RAG/pull/170
         self.text_kwargs = text_kwargs or {}
         self.extract_images = extract_images
@@ -535,7 +689,7 @@ class PyMuPDFParser(OCRPdfParser):
                         )
 
                 elif self.mode == "single":
-                    text = "\n\n".join(
+                    text = self.pages_delimitor.join(
                         self._get_page_content(doc, page, blob) for page in doc
                     )
                     yield Document(page_content=text,
@@ -598,7 +752,7 @@ class PyMuPDFParser(OCRPdfParser):
                     pix.height, pix.width, -1
                 )
             )
-        return self.convert_image_to_text(imgs)
+        return "\n\n".join([text for text in self.convert_image_to_text(imgs)])
 
     def _extract_tables_from_page(
             self, page: pymupdf.pymupdf.Page
@@ -614,7 +768,7 @@ class PyMuPDFParser(OCRPdfParser):
         return ""
 
 
-class PyPDFium2Parser(OCRPdfParser):
+class PyPDFium2Parser(ImagesPdfParser):
     """Parse `PDF` with `PyPDFium2`."""
 
     # PyPDFium2 is not thread safe.
@@ -625,9 +779,20 @@ class PyPDFium2Parser(OCRPdfParser):
                  *,
                  password: Optional[str] = None,
                  mode: Literal["single", "paged"] = "paged",
-                 extract_images: bool = False
+                 pages_delimitor: str = "\n\n",
+                 extract_images: bool = False,
+                 images_to_text: CONVERT_IMAGE_TO_TEXT = None,
+
                  ) -> None:
-        """Initialize the parser."""
+        """Initialize a parser based on PyPDFium2.
+
+        Args:
+            password: Password to open the PDF.
+            mode: Extraction mode to use. Either "single" or "paged".
+            pages_delimitor: Delimitor to use between pages.
+            extract_images: Whether to extract images from PDF.
+            images_to_text: Function to extract text from images.
+        """
         try:
             import pypdfium2  # noqa:F401
         except ImportError:
@@ -635,11 +800,12 @@ class PyPDFium2Parser(OCRPdfParser):
                 "pypdfium2 package not found, please install it with"
                 " `pip install pypdfium2`"
             )
+        super().__init__(extract_images, images_to_text)
         if mode not in ["single", "paged"]:
             raise ValueError("mode must be single or paged")
         self.mode = mode
+        self.pages_delimitor = pages_delimitor
         self.password = password
-        self.extract_images = extract_images
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
         """Lazily parse the blob."""
@@ -675,7 +841,7 @@ class PyPDFium2Parser(OCRPdfParser):
                             full_content.append(content)
 
                     if self.mode == "single":
-                        yield Document(page_content="".join(full_content),
+                        yield Document(page_content=self.pages_delimitor.join(full_content),
                                        metadata=doc_metadata)
                 finally:
                     pdf_reader.close()
@@ -690,10 +856,10 @@ class PyPDFium2Parser(OCRPdfParser):
         images = list(page.get_objects(filter=(pdfium_c.FPDF_PAGEOBJ_IMAGE,)))
 
         images = list(map(lambda x: x.get_bitmap().to_numpy(), images))
-        return self.convert_image_to_text(images)
+        return "\n\n".join([text for text in self.convert_image_to_text(images)])
 
 
-class PDFPlumberParser(OCRPdfParser):
+class PDFPlumberParser(ImagesPdfParser):
     """Parse `PDF` with `PDFPlumber`."""
 
     def __init__(
@@ -701,9 +867,12 @@ class PDFPlumberParser(OCRPdfParser):
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
+            pages_delimitor: str = "\n\n",
             extract_images: bool = False,
+            images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
             extract_tables_settings: Optional[Dict[str, Any]] = None,
+
             text_kwargs: Optional[Mapping[str, Any]] = None,
             dedupe: bool = False,
             include_page_breaks: bool = False,  # PPR vs unstructured
@@ -711,18 +880,32 @@ class PDFPlumberParser(OCRPdfParser):
         """Initialize the parser.
 
         Args:
+            password: Password to open the PDF.
+            mode: Extraction mode to use. Either "single" or "paged".
+                        extract_images: Whether to extract images from PDF.
+            images_to_text: Function to extract text from images.
+            extract_tables: Whether to extract tables from PDF.
+
             text_kwargs: Keyword arguments to pass to ``pdfplumber.Page.extract_text()``
             dedupe: Avoiding the error of duplicate characters if `dedupe=True`.
         """
+        try:
+            import pdfplumber  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "pdfplumber package not found, please install it with `pip install pdfplumber`"
+            )
+
+        super().__init__(extract_images, images_to_text)
         self.password = password
         if mode not in ["single", "paged"]:
             raise ValueError("mode must be single or paged")
-        if extract_tables and extract_tables not in ["csv","markdown","html"]:
+        if extract_tables and extract_tables not in ["csv", "markdown", "html"]:
             raise ValueError("mode must be csv, markdown or html")
         self.mode = mode
+        self.pages_delimitor = pages_delimitor
         self.dedupe = dedupe
         self.text_kwargs = text_kwargs or {}
-        self.extract_images = extract_images
         self.extract_tables = extract_tables
         self.extract_tables_settings = extract_tables_settings or {
             "vertical_strategy": "lines",
@@ -772,7 +955,7 @@ class PDFPlumberParser(OCRPdfParser):
                                    for
                                    table in tables_content])
         yield Document(
-            page_content="\n".join(contents),
+            page_content=self.pages_delimitor.join(contents),
             metadata=dict(
                 {
                     "source": blob.source,  # type: ignore[attr-defined]
@@ -870,7 +1053,7 @@ class PDFPlumberParser(OCRPdfParser):
                     #                          "total_pages": len(doc.pages),
                     #                      }
                     #                      )
-                    yield Document(self.convert_image_to_text([content]),
+                    yield Document(next(self.convert_image_to_text([content])),
                                    metadata=dict({
                                        "source": blob.source,
                                        "type": "image",  # PPR vs unstructured
@@ -925,9 +1108,11 @@ class PDFPlumberParser(OCRPdfParser):
             if isinstance(content, str):
                 result.append(content)
             elif isinstance(content, np.ndarray):
-                result.append(self.convert_image_to_text([content]))
-            else:
+                result.append("\n".join(self.convert_image_to_text([content])))
+            elif isinstance(content, List):
                 result.append(self._convert_table(content))  # PPR
+            else:
+                assert False, f"Unknown content type: {type(content)}"
         return " ".join(result)
 
     def _split_page_content(
@@ -989,7 +1174,7 @@ class PDFPlumberParser(OCRPdfParser):
                         # print(f"yield table {i}")
                         yield tables_content[i]
                     else:
-                        # print(f"  saute yield sur tableau deja vu")
+                        # PPR print(f"  saute yield sur tableau deja vu")
                         pass
                     break
             if not is_table:
@@ -1324,8 +1509,9 @@ class DocumentIntelligenceParser(BaseBlobParser):
 
             yield from docs
 
+
 # %% Add on PPR
-class PyMuPDF4LLMParser(OCRPdfParser):
+class PyMuPDF4LLMParser(ImagesPdfParser):
     """Parse `PDF` using `PyMuPDF`."""
 
     def __init__(
@@ -1333,23 +1519,28 @@ class PyMuPDF4LLMParser(OCRPdfParser):
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
-            extract_images: bool = False,
-
+            pages_delimitor: str = "\n\n",
             to_markdown_kwargs: Optional[Mapping[str, Any]] = None,
     ) -> None:
         """Initialize the parser.
 
         Args:
-            text_kwargs: Keyword arguments to pass to ``fitz.Page.get_text()``.
+            password: Password to open the PDF.
+            mode: Extraction mode to use. Either "single" or "paged".
+            pages_delimitor: Delimitor to use between pages.
+
+            to_markdown_kwargs: Keyword arguments to pass to the PyMuPDF4LLM
+             extraction method.
         """
         # self.password = password
         if mode not in ["single", "paged"]:
             raise ValueError("mode must be single or paged")
         _to_markdown_kwargs = to_markdown_kwargs or {}
+        self.pages_delimitor = pages_delimitor
         if not _to_markdown_kwargs.get("password"):
             _to_markdown_kwargs["password"] = password
         if mode == "single":
-            del _to_markdown_kwargs["page_chunks"]
+            del _to_markdown_kwargs["page_chunks"]  # FIXME: page_delimiter
         elif mode == "paged":
             _to_markdown_kwargs["page_chunks"] = True
         else:
@@ -1358,7 +1549,12 @@ class PyMuPDF4LLMParser(OCRPdfParser):
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
         """Lazily parse the blob."""
-        import pymupdf4llm
+        try:
+            import pymupdf4llm  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "pymupdf4llm package not found, please install it with `pip install pymupdf4llm`"
+            )
         with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
             if blob.data is None:  # type: ignore[attr-defined]
                 for mu_doc in pymupdf4llm.to_markdown(
@@ -1459,5 +1655,3 @@ class PDFRouterParser(BaseBlobParser):
                                or re_page.search(page1))
                     if is_producer and is_creator and is_page:
                         yield from parser.lazy_parse(blob)
-
-
