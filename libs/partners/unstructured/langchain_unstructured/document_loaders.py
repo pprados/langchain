@@ -6,13 +6,18 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import IO, Any, Callable, Iterator, Optional, cast, Literal, Union, Dict
+from typing import IO, Any, Callable, Iterator, Optional, cast, Literal, Union, Dict, \
+    BinaryIO, Tuple
 
+import numpy as np
+from PIL import Image
 from typing_extensions import TypeAlias, List
 from unstructured_client import UnstructuredClient  # type: ignore
 from unstructured_client.models import operations, shared  # type: ignore
 
 from langchain_community.document_loaders.blob_loaders import Blob
+from langchain_community.document_loaders.parsers.pdf import CONVERT_IMAGE_TO_TEXT, \
+    ImagesPdfParser, PDFMinerParser, purge_metadata
 from langchain_community.document_loaders.pdf import BasePDFLoader
 from langchain_core.document_loaders.base import BaseLoader, BaseBlobParser
 from langchain_core.documents import Document
@@ -23,7 +28,7 @@ logger = logging.getLogger(__file__)
 
 _DEFAULT_URL = "https://api.unstructuredapp.io/general/v0/general"
 
-class UnstructuredPDFParser(BaseBlobParser):
+class UnstructuredPDFParser(ImagesPdfParser):
     """Unstructured document loader interface.
 
     Setup:
@@ -103,6 +108,7 @@ class UnstructuredPDFParser(BaseBlobParser):
             *,
             password: Optional[str] = None,  # FIXME PPR https://github.com/Unstructured-IO/unstructured/pull/3721
             mode: Literal["single", "paged", "elements"] = "single",
+            pages_delimitor: str = "\n\n",
             extract_images: bool = False,
             partition_via_api: bool = False,
             post_processors: Optional[list[Callable[[str], str]]] = None,
@@ -111,6 +117,7 @@ class UnstructuredPDFParser(BaseBlobParser):
             client: Optional[UnstructuredClient],
             url: Optional[str] = None,
             web_url: Optional[str] = None,
+            images_to_text: CONVERT_IMAGE_TO_TEXT,
             **unstructured_kwargs: Any,
 
     ) -> None:
@@ -118,6 +125,7 @@ class UnstructuredPDFParser(BaseBlobParser):
 
         Args:
         """
+        super().__init__(extract_images, images_to_text)
         if client is not None:
             disallowed_params = [("api_key", api_key), ("url", url)]
             bad_params = [
@@ -143,6 +151,7 @@ class UnstructuredPDFParser(BaseBlobParser):
                 f"Got {mode} for `mode`, but should be one of `{_valid_modes}`"
             )
         self.mode = mode
+        self.pages_delimitor = pages_delimitor
         if extract_images and unstructured_kwargs.get("strategy") == "fast":
             logger.warning("Change strategy to 'auto' to extract images")
             unstructured_kwargs["strategy"] = "auto"
@@ -151,6 +160,7 @@ class UnstructuredPDFParser(BaseBlobParser):
                 logger.warning("extract_images is not supported with partition_via_api")
             else:
                 unstructured_kwargs["extract_images_in_pdf"] = True
+        self.images_to_text = images_to_text
         self.client = client
         self.partition_via_api = partition_via_api
         self.post_processors = post_processors
@@ -168,8 +178,9 @@ class UnstructuredPDFParser(BaseBlobParser):
         if not self.partition_via_api:
             unstructured_kwargs["metadata_filename"] = (
                     blob.path or blob.metadata.get("source"))
-        with blob.as_bytes_io() as pdf_file_obj:
-            yield from _SingleDocumentLoader(
+        page_number=1
+        with (blob.as_bytes_io() as pdf_file_obj):
+            _single_doc_loader=_SingleDocumentLoader(
                 file=pdf_file_obj,
                 password=self.password,
                 partition_via_api=self.partition_via_api,
@@ -177,7 +188,56 @@ class UnstructuredPDFParser(BaseBlobParser):
                 # SDK parameters
                 client=self.client,
                 **unstructured_kwargs,
-            ).lazy_load()
+            )
+            path = Path(blob.source or blob.path)
+            metadata=purge_metadata(
+                _single_doc_loader._get_metadata() | {
+                    "source": blob.source,
+                    "file_directory": str(path.parent),
+                    "filename": path.name,
+                    "filetype": blob.mimetype,
+                    })
+            if self.mode == "elements":
+                 yield from _single_doc_loader.lazy_load()
+            elif self.mode in ("paged","single"):
+
+                if self.mode == "paged":
+                    metadata["page"]= page_number
+                page_content=[]
+
+                for doc in _single_doc_loader.lazy_load():
+                    if (doc.metadata.get("category") == "Image"
+                        and "image_path" in doc.metadata):
+                        image=np.array(Image.open(doc.metadata["image_path"]))
+                        page_content.append(next(self.convert_image_to_text([image])))
+
+                    elif doc.metadata.get("category") == "FigureCaption":
+                        pass
+                    elif doc.metadata.get("category") == "Table":
+                        pass
+                    elif doc.metadata.get("category") == "Title":
+                        page_content.append("# "+doc.page_content)
+                    elif doc.metadata.get("category") == "Header":
+                        pass
+                    elif doc.metadata.get("category") == "Footer":
+                        pass
+                    elif doc.metadata.get("category") == "PageBreak":
+                        if self.mode == "paged":
+                            yield Document(page_content="\n".join(page_content),
+                                           metadata=metadata)
+                            page_content.clear()
+                            page_number += 1
+                        else:
+                            page_content.append(self.pages_delimitor)
+                    else:
+                        # NarrativeText, UncategorizedText, Formula, FigureCaption,
+                        # ListItem, Address, EmailAddress
+                        if doc.metadata.get("category") not in ["NarrativeText", "UncategorizedText","Formula","FigureCaption","ListItem","Address","EmailAddress"]:
+                            logger.warning(f"Unknown category {doc.metadata.get('category')}")
+                        page_content.append(doc.page_content)
+                if self.mode == "single":
+                    yield Document(page_content="\n".join(page_content),
+                                   metadata=metadata)
 
 
 class UnstructuredPDFLoader(BasePDFLoader):
@@ -186,6 +246,7 @@ class UnstructuredPDFLoader(BasePDFLoader):
                  *,
                  headers: Optional[Dict] = None,
                  mode: Literal["single", "paged", "elements"] = "single",
+                 pages_delimitor: str = "\n\n",
                  extract_images: bool = False,
                  partition_via_api: bool = False,
                  post_processors: Optional[list[Callable[[str], str]]] = None,
@@ -199,6 +260,7 @@ class UnstructuredPDFLoader(BasePDFLoader):
 
         self.parser = UnstructuredPDFParser(
             mode=mode,
+            pages_delimitor=pages_delimitor,
             extract_images=extract_images,
             client=client,
             partition_via_api=partition_via_api,
@@ -412,8 +474,9 @@ class _SingleDocumentLoader(BaseLoader):
             if self.post_processors
             else self._elements_json
         )
+        file_metadata = purge_metadata(self._get_metadata())
         for element in elements_json:
-            metadata = self._get_metadata()
+            metadata = file_metadata.copy()
             metadata.update(element.get("metadata"))  # type: ignore
             metadata.update(
                 {"category": element.get("category") or element.get("type")}
@@ -422,17 +485,6 @@ class _SingleDocumentLoader(BaseLoader):
             yield Document(
                 page_content=cast(str, element.get("text")), metadata=metadata
             )
-        # TODO:
-        # for element in elements:
-        #   if element.to_dict()['type'] == 'Table':
-        #     table_content = element.to_dict()['text']
-        #
-        #     # Get description and markdown table from GPT-4o
-        #     result = get_table_description(table_content, document_content)
-        #     # Replace each Table elements text with the new description
-        #     element.text = result
-        #
-        # print("Processing complete.")
 
     @property
     def _elements_json(self) -> list[dict[str, Any]]:
@@ -501,9 +553,35 @@ class _SingleDocumentLoader(BaseLoader):
     ) -> list[dict[str, Any]]:
         return [element.to_dict() for element in elements]
 
-    def _get_metadata(self) -> dict[str, Any]:
-        """Get file_path metadata if available."""
-        return {"source": self.file_path} if self.file_path else {}
+    # def _get_metadata(self) -> dict[str, Any]:
+    #     """Get file_path metadata if available."""
+    #     return {"source": self.file_path} if self.file_path else {}
+    #
+    def _get_metadata(self) -> Dict[str, Any]:
+        from pdfminer.pdfpage import PDFPage, PDFParser, PDFDocument
+        # Create a PDF parser object associated with the file object.
+        parser = PDFParser(self.file)
+        # Create a PDF document object that stores the document structure.
+        doc = PDFDocument(parser, password=self.password)
+        metadata = {}
+
+        for info in doc.info:
+            metadata.update(info)
+        for k, v in metadata.items():
+            try:
+                metadata[k] = PDFMinerParser.resolve_and_decode(v)
+            except Exception as e:  # pragma: nocover
+                # This metadata value could not be parsed. Instead of failing the PDF
+                # read, treat it as a warning only if `strict_metadata=False`.
+                logger.warning(
+                    f'[WARNING] Metadata key "{k}" could not be parsed due to '
+                    f"exception: {str(e)}"
+                )
+
+        # Count number of pages.
+        metadata["total_pages"] = len(list(PDFPage.create_pages(doc)))
+        return metadata
+
 
     def _post_process_elements_json(
             self, elements_json: list[dict[str, Any]]

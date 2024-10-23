@@ -244,8 +244,9 @@ class PyPDFLoader(BasePDFLoader):
             *,  # Move after the file_path ?
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             mode: Literal["single", "paged"] = "paged",
+            pages_delimitor: str = "\f",  # PPR
             extract_tables: Optional[Literal["markdown"]] = None,
-            extraction_mode: Literal["plain", "page"] = "plain",
+            extraction_mode: Literal["plain", "layout"] = "plain",
             extraction_kwargs: Optional[Dict] = None,
     ) -> None:
         """Initialize with a file path."""
@@ -262,6 +263,7 @@ class PyPDFLoader(BasePDFLoader):
             images_to_text=images_to_text,
             extract_tables=extract_tables,
             mode=mode,
+            pages_delimitor=pages_delimitor,
             extraction_mode=extraction_mode,
             extraction_kwargs=extraction_kwargs,
         )
@@ -286,6 +288,7 @@ class PyPDFium2Loader(BasePDFLoader):
             file_path: str,
             *,
             mode: Literal["single", "paged"] = "paged",
+            pages_delimitor: str = "\f",  # PPR
             password: Optional[str] = None,
             extract_images: bool = False,
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
@@ -299,6 +302,7 @@ class PyPDFium2Loader(BasePDFLoader):
             password=password,
             extract_images=extract_images,
             images_to_text=images_to_text,
+            pages_delimitor=pages_delimitor,
         )
 
     def lazy_load(
@@ -398,6 +402,7 @@ class PDFMinerLoader(BasePDFLoader):
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
+            pages_delimitor: str = "\f",  # PPR: page_delimiter
             extract_images: bool = False,
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
 
@@ -426,6 +431,7 @@ class PDFMinerLoader(BasePDFLoader):
             images_to_text=images_to_text,
             concatenate_pages=concatenate_pages,
             mode=mode,
+            pages_delimitor=pages_delimitor
         )
 
     def lazy_load(
@@ -492,12 +498,13 @@ class PyMuPDFLoader(BasePDFLoader):
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
+            pages_delimitor: str = "\f",  # PPR
             extract_images: bool = False,
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             extract_tables: Optional[Literal["markdown"]] = None,
 
             headers: Optional[Dict] = None,
-            extract_tables_settings: Optional[Dict[str, Any]],
+            extract_tables_settings: Optional[Dict[str, Any]] = None,
             **kwargs: Any,
     ) -> None:
         """Initialize with a file path."""
@@ -514,6 +521,7 @@ class PyMuPDFLoader(BasePDFLoader):
         self.parser = PyMuPDFParser(
             password=password,
             mode=mode,
+            pages_delimitor=pages_delimitor,
             text_kwargs=kwargs,
             extract_images=extract_images,
             images_to_text=images_to_text,
@@ -542,7 +550,6 @@ class PyMuPDFLoader(BasePDFLoader):
         yield from parser.lazy_parse(blob)
 
 
-
 class PDFPlumberLoader(BasePDFLoader):
     """Load `PDF` files using `pdfplumber`."""
 
@@ -562,6 +569,7 @@ class PDFPlumberLoader(BasePDFLoader):
 
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
+            pages_delimitor: str = "\f",  # PPR
             extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
             extract_tables_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -578,6 +586,7 @@ class PDFPlumberLoader(BasePDFLoader):
         self.parser = PDFPlumberParser(
             password=password,
             mode=mode,
+            pages_delimitor=pages_delimitor,
             extract_images=extract_images,
             images_to_text=images_to_text,
             extract_tables=extract_tables,
@@ -597,6 +606,7 @@ class PDFPlumberLoader(BasePDFLoader):
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
+
 
 # PPR: split with parser
 class DedocPDFLoader(DedocBaseLoader):
@@ -695,7 +705,6 @@ class DedocPDFLoader(DedocBaseLoader):
             parsing_params=self.parsing_parameters,
             split=self.split,
         )
-
 
 
 # %% --------- Online pdf loader ---------
@@ -1074,6 +1083,7 @@ class PyMuPDF4LLMLoader(BasePDFLoader):
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
+            pages_delimitor: str = "\f",  # PPR
 
             **kwargs: Any,
     ) -> None:
@@ -1090,6 +1100,7 @@ class PyMuPDF4LLMLoader(BasePDFLoader):
         #     raise NotImplemented("extract_images is not implemented yet.")
         self.parser = PyMuPDF4LLMParser(
             mode=mode,
+            pages_delimitor=pages_delimitor,
             password=password,
             to_markdown_kwargs=kwargs)
 
