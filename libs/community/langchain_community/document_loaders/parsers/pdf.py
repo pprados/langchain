@@ -126,7 +126,7 @@ def extract_from_images_with_rapidocr(
 
 # Type to change the function to convert images to text.
 CONVERT_IMAGE_TO_TEXT = Optional[Callable[
-    [Sequence[Iterable[np.ndarray]]], Iterator[str]]]
+    [Iterable[np.ndarray]], Iterator[str]]]
 
 
 def convert_images_to_text_with_rapidocr(
@@ -141,7 +141,7 @@ def convert_images_to_text_with_rapidocr(
             format: Format of the output text. Either "text" or "markdown".
     """
 
-    def _convert_images_to_text(images: Sequence[Union[Iterable[np.ndarray], bytes]]) -> \
+    def _convert_images_to_text(images: Iterable[np.ndarray]) -> \
             Iterator[str]:
         """Extract text from images.
         Can be overloaded to use another OCR algorithm, or to use
@@ -193,7 +193,7 @@ def convert_images_to_text_with_tesseract(
             format: Format of the output text. Either "text" or "markdown".
     """
 
-    def _convert_images_to_text(images: Sequence[Union[Iterable[np.ndarray], bytes]]) -> \
+    def _convert_images_to_text(images: Iterable[np.ndarray]) -> \
             Iterator[str]:
         """Extract text from images.
         Can be overloaded to use another OCR algorithm, or to use
@@ -259,7 +259,7 @@ def convert_images_to_description(
     """
 
     def _convert_images_to_description(
-            images: Sequence[Union[Iterable[np.ndarray], bytes]],
+            images: Iterable[np.ndarray],
     ) -> Iterator[str]:
         """Describe an image and extract text.
         Use a multimodal model to describe the images.
@@ -276,10 +276,9 @@ def convert_images_to_description(
 
         chat = model
         for image in images:  # FIXME: Add a batch processing
-            if isinstance(image, bytes):
-                img_base64 = base64.b64encode(image).decode("utf-8")
-            elif isinstance(image, np.ndarray):
-                img_base64 = base64.b64encode(image.tobytes()).decode("utf-8")
+            image_bytes = io.BytesIO()
+            Image.fromarray(image).save(image_bytes, format="PNG")
+            img_base64 = base64.b64encode(image_bytes.getvalue()).decode("utf-8")
             msg = chat.invoke(
                 [
                     HumanMessage(
