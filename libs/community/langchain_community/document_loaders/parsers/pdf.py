@@ -7,7 +7,6 @@ import re
 import threading
 import warnings
 from datetime import datetime
-from tempfile import gettempdir
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -17,7 +16,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
-    Union, List, Tuple, Literal, BinaryIO, Callable, cast, )
+    Union, List, Tuple, Literal, BinaryIO, Callable, )
 from urllib.parse import urlparse
 
 import numpy as np
@@ -73,7 +72,7 @@ def purge_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         "page_count": "total_pages",
         "file_path": "source",
     }
-    for k,v in metadata.items():
+    for k, v in metadata.items():
         if k.startswith("/"):
             k = k[1:]
         if k.lower() in ["creationdate", "moddate"]:
@@ -335,7 +334,6 @@ class PyPDFParser(ImagesPdfParser):
             mode: Literal["single", "paged"] = "paged",
             pages_delimitor: str = "\f",  # PPR
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-            extract_tables: Optional[Literal["markdown"]] = None,
 
             extraction_mode: Literal["plain", "layout"] = "plain",
             extraction_kwargs: Optional[Dict[str, Any]] = None,
@@ -349,7 +347,6 @@ class PyPDFParser(ImagesPdfParser):
             May be <!--PAGE BREAK -->
             extract_images: Whether to extract images from PDF.
             images_to_text: Function to extract text from images.
-            extract_tables: Whether to extract tables from PDF.
 
             extraction_mode: PyPDF extraction mode to use. Either "plain" or "layout".
             extraction_kwargs: Keyword arguments to pass to the PyPDF extraction method.
@@ -363,56 +360,84 @@ class PyPDFParser(ImagesPdfParser):
         super().__init__(extract_images, images_to_text)
         if mode not in ["single", "paged"]:
             raise ValueError("mode must be single or paged")
-        if extract_tables and extract_tables not in ["markdown"]:
-            raise ValueError("mode must be markdown")
         self.password = password
-        self.extract_tables = extract_tables
         self.mode = mode
         self.pages_delimitor = pages_delimitor
         self.extraction_mode = extraction_mode
         self.extraction_kwargs = extraction_kwargs or {}
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
-        """Lazily parse the blob."""
+        """Lazily parse the blob.
+        Insert image, if possible, between two paragraphs.
+        In this way, a paragraph can be continued on the next page.
+        """
 
         def _extract_text_from_page(page: "PageObject") -> str:
             """
             Extract text from image given the version of pypdf.
             """
+
+            def before(operator, operand_arguments,
+                       current_transformation_matrix, text_matrix):
+                pass
+
+            def after(operator, operand_arguments,
+                      current_transformation_matrix, text_matrix):
+                pass
+
+            def text(text, current_transformation_matrix,
+                     text_matrix, font_dictionary, font_size):
+                pass
+
             if pypdf.__version__.startswith("3"):
                 return page.extract_text()
             else:
                 return page.extract_text(
-                    extraction_mode=self.extraction_mode, **self.extraction_kwargs
+                    extraction_mode=self.extraction_mode, **self.extraction_kwargs,
+                    visitor_operand_before=before,
+                    visitor_operand_after=after,
+                    visitor_text=text,
                 )
 
-        with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
+        with (blob.as_bytes_io() as pdf_file_obj):  # type: ignore[attr-defined]
             pdf_reader = pypdf.PdfReader(pdf_file_obj, password=self.password)
 
-            metadata=purge_metadata(
+            metadata = purge_metadata(
                 pdf_reader.metadata | {
                     "source": blob.source
                 })
-            # PPR TODO: EXTRAct table
-            if self.mode == "paged":
-                yield from (
-                    Document(
-                        page_content=_extract_text_from_page(page=page)
-                                     + self.extract_images_from_page(page),
+            single_texts = []
+            for page_number, page in enumerate(pdf_reader.pages):
+                text_from_page = _extract_text_from_page(page=page)
+                image_from_page = self.extract_images_from_page(page)
+                if image_from_page:
+                    # insert image, if possible, between two paragraphs
+                    sep = "\n\n"
+                    pos = text_from_page.rfind(sep)
+                    if pos == -1:
+                        sep = "\n"
+                        pos = text_from_page.rfind(sep)
+                    if pos != -1:
+                        all_text = (text_from_page[:pos] +
+                                    sep +
+                                    image_from_page +
+                                    text_from_page[pos:])
+                    else:
+                        all_text = text_from_page + image_from_page
+                else:
+                    all_text = text_from_page
+                if self.mode == "paged":
+                    yield Document(
+                        page_content=all_text,
                         metadata=metadata | {"page": page_number},
-                        # type: ignore[attr-defined]
                     )
-                    for page_number, page in enumerate(pdf_reader.pages)
+                else:
+                    single_texts.append(all_text)
+            if self.mode == "single":
+                yield Document(
+                    page_content=self.pages_delimitor.join(single_texts),
+                    metadata=metadata
                 )
-            elif self.mode == "single":
-                text = self.pages_delimitor.join(
-                    _extract_text_from_page(page=page) + self.extract_images_from_page(
-                        page)
-                    for page in pdf_reader.pages
-                )
-                yield Document(page_content=text, metadata=metadata)
-            else:
-                raise ValueError("mode must be single or paged")
 
     def extract_images_from_page(self, page: pypdf._page.PageObject) -> str:
         """Extract images from page and get the text with RapidOCR."""
@@ -444,10 +469,8 @@ from pdfminer.converter import *
 from pdfminer.layout import LAParams
 from pdfminer.pdfinterp import PDFPageInterpreter, PDFResourceManager
 from pdfminer.pdfpage import PDFPage
-from pdfminer.image import ImageWriter
 from pdfminer.layout import *
-from pdfminer.pdftypes import PDFStream
-from pdfminer import utils
+
 
 class PDFMinerParser(ImagesPdfParser):
     """Parse `PDF` using `PDFMiner`."""
@@ -573,6 +596,7 @@ class PDFMinerParser(ImagesPdfParser):
         with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
             pages = PDFPage.get_pages(pdf_file_obj, password=self.password)
             rsrcmgr = PDFResourceManager()
+
             class Visitor(PDFLayoutAnalyzer):
                 def __init__(
                         self,
@@ -593,16 +617,19 @@ class PDFMinerParser(ImagesPdfParser):
                         elif isinstance(item, LTText):
                             text_io.write(item.get_text())
                         elif isinstance(item, LTImage):
-                            img=np.array(
-                                Image.open(io.BytesIO(item.stream.get_data())))
-                            text_io.write(next(self.images_to_text([img])))
+                            if self.extract_images and self.images_to_text:
+                                img = np.array(
+                                    Image.open(io.BytesIO(item.stream.get_data())))
+                                text_io.write(next(self.images_to_text([img])))
                         elif isinstance(item, LTContainer):
                             for child in item:
                                 render(child)
+
                     render(ltpage)
 
             text_io = io.StringIO()
-            visitor_for_all = PDFPageInterpreter(rsrcmgr, Visitor(rsrcmgr,laparams=LAParams()))
+            visitor_for_all = PDFPageInterpreter(rsrcmgr,
+                                                 Visitor(rsrcmgr, laparams=LAParams()))
             for i, page in enumerate(pages):
                 text_io.truncate(0)
                 text_io.seek(0)
@@ -707,7 +734,7 @@ class PyMuPDFParser(ImagesPdfParser):
 
         import pymupdf
 
-        with PyMuPDFParser._lock:
+        with PyMuPDFParser._lock:  # PPR: toto integration images
             with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
                 if blob.data is None:  # type: ignore[attr-defined]
                     doc = pymupdf.open(file_path)
@@ -848,7 +875,7 @@ class PyPDFium2Parser(ImagesPdfParser):
 
         # pypdfium2 is really finicky with respect to closing things,
         # if done incorrectly creates seg faults.
-        with PyPDFium2Parser._lock:
+        with PyPDFium2Parser._lock:  # TODO: images
             with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
                 pdf_reader = pypdfium2.PdfDocument(file_path,
                                                    password=self.password,

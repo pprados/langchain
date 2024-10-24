@@ -245,7 +245,6 @@ class PyPDFLoader(BasePDFLoader):
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             mode: Literal["single", "paged"] = "paged",
             pages_delimitor: str = "\f",  # PPR
-            extract_tables: Optional[Literal["markdown"]] = None,
             extraction_mode: Literal["plain", "layout"] = "plain",
             extraction_kwargs: Optional[Dict] = None,
     ) -> None:
@@ -261,7 +260,6 @@ class PyPDFLoader(BasePDFLoader):
             password=password,
             extract_images=extract_images,
             images_to_text=images_to_text,
-            extract_tables=extract_tables,
             mode=mode,
             pages_delimitor=pages_delimitor,
             extraction_mode=extraction_mode,
