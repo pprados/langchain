@@ -1,7 +1,10 @@
 """Tests for the various PDF parsers."""
-
+import os
+import re
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Tuple, Type
+
+import pytest
 
 from langchain_community.document_loaders.base import BaseBlobParser
 from langchain_community.document_loaders.blob_loaders import Blob
@@ -12,12 +15,18 @@ from langchain_community.document_loaders.parsers.pdf import (
     PyPDFium2Parser,
     PyPDFParser,
 )
+from langchain_unstructured import UnstructuredPDFParser
 
 # PDFs to test parsers on.
 HELLO_PDF = Path(__file__).parent.parent.parent / "examples" / "hello.pdf"
 
 LAYOUT_PARSER_PAPER_PDF = (
     Path(__file__).parent.parent.parent / "examples" / "layout-parser-paper.pdf"
+)
+
+LAYOUT_PARSER_PAPER_PASSWORD_PDF = (
+    Path(__file__).parent.parent.parent / "examples" /
+    "layout-parser-paper-password.pdf"
 )
 
 DUPLICATE_CHARS = (
@@ -41,7 +50,7 @@ def _assert_with_parser(parser: BaseBlobParser, splits_by_page: bool = True) -> 
     assert isinstance(page_content, str)
     # The different parsers return different amount of whitespace, so using
     # startswith instead of equals.
-    assert docs[0].page_content.startswith("Hello world!")
+    assert re.findall(r"Hello +world!", docs[0].page_content)
 
     blob = Blob.from_path(LAYOUT_PARSER_PAPER_PDF)
     doc_generator = parser.lazy_parse(blob)
@@ -131,3 +140,90 @@ def test_extract_images_text_from_pdf_pymupdfparser() -> None:
 def test_extract_images_text_from_pdf_pypdfium2parser() -> None:
     """Test extract image from pdf and recognize text with rapid ocr - PyPDFium2Parser"""  # noqa: E501
     _assert_with_parser(PyPDFium2Parser(extract_images=True))
+
+
+@pytest.mark.parametrize(
+    "mode", ["single","paged"],
+    # "mode", ["single"],
+    # "mode", ["paged"],
+)
+@pytest.mark.parametrize(
+    # "extract_images", [True, False],
+    # "extract_images", [False],
+    "extract_images", [True],
+)
+@pytest.mark.parametrize(
+    "parser_factory,params", [
+        # ("PyPDFParser",{"extraction_mode":"plain"}),
+        # ("PyPDFParser",{"extraction_mode":"layout"}),
+        # ("PyPDFium2Parser",{}),
+        ("PDFMinerParser",{}),
+        # ("PyMuPDFParser",{}),
+        # ("PDFPlumberParser",{}),
+        # ("UnstructuredPDFParser",{"strategy":"auto", "skip_infer_table_types":["jpg", "png", "heic"],}), # PPR déplacer dans unstructured
+        # ("UnstructuredPDFParser",{"strategy":"fast", "skip_infer_table_types":["jpg", "png", "heic"],}),
+        # ("UnstructuredPDFParser",{"strategy":"hi_res", "skip_infer_table_types":["jpg", "png", "heic"],}),
+        # ("UnstructuredPDFParser",{"strategy":"ocr_only", "skip_infer_table_types":["jpg", "png", "heic"],}),
+    ],
+)
+def test_standard_parameters(
+        parser_factory:str,
+        params:dict,
+        mode:str,
+        extract_images:bool) -> None:
+
+    def _std_assert_with_parser(parser: BaseBlobParser) -> None:
+        """Standard tests to verify that the given parser works.
+
+        Args:
+            parser (BaseBlobParser): The parser to test.
+        """
+        blob = Blob.from_path(HELLO_PDF)
+        doc_generator = parser.lazy_parse(blob)
+        docs = list(doc_generator)
+        metadata=docs[0].metadata
+        assert metadata["source"] == str(HELLO_PDF)
+        assert "creationdate" in metadata
+        assert "creator" in metadata
+        assert "producer" in metadata
+        assert "total_pages" in metadata
+
+        blob = Blob.from_path(LAYOUT_PARSER_PAPER_PDF)
+        doc_generator = parser.lazy_parse(blob)
+        docs = list(doc_generator)
+        metadata = docs[0].metadata
+        assert metadata["source"] == str(LAYOUT_PARSER_PAPER_PDF)
+        assert "creationdate" in metadata
+        assert "creator" in metadata
+        assert "producer" in metadata
+        assert "total_pages" in metadata
+        if len(docs) > 1:
+            assert metadata["page"] == 0
+
+        old_password=parser.password
+        parser.password="password"
+        blob = Blob.from_path(LAYOUT_PARSER_PAPER_PASSWORD_PDF)
+        doc_generator = parser.lazy_parse(blob)
+        docs = list(doc_generator)
+        assert(len(docs))
+        parser.password=old_password
+
+
+    """Test standard parameters."""
+
+    import langchain_community.document_loaders.parsers.pdf as pdf_parsers
+    import langchain_unstructured as pdf_unstructured
+    os.environ["SCARF_NO_ANALYTICS"] = "false"
+    os.environ["DO_NOT_TRACK"] = "true"
+    images_to_text = lambda images: iter(["<IMAGE />"] * len(images))
+    if hasattr(pdf_parsers,parser_factory):
+        parser_class=getattr(pdf_parsers,parser_factory)
+    else:
+        parser_class=getattr(pdf_unstructured,parser_factory)
+    parser = parser_class(
+        mode=mode,
+        extract_images=extract_images,
+        images_to_text=images_to_text,
+        **params)
+    # _assert_with_parser(parser, splits_by_page=(mode == "paged"))
+    _std_assert_with_parser(parser)

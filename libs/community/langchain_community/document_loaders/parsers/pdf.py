@@ -1,9 +1,7 @@
 """Module contains common parsers for PDFs."""
 import base64
 import html
-import io
 import logging
-import re
 import threading
 import warnings
 from datetime import datetime
@@ -16,7 +14,7 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
-    Union, List, Tuple, Literal, BinaryIO, Callable, )
+    Union, List, Literal, Callable, )
 from urllib.parse import urlparse
 
 import numpy as np
@@ -25,7 +23,6 @@ import pymupdf
 import pypdf  # PPR
 import pypdfium2
 from PIL import Image
-
 from langchain_community.document_loaders.base import BaseBlobParser
 from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_core._api.deprecation import (
@@ -66,6 +63,7 @@ logger = logging.getLogger(__name__)
 
 _format_image_str = "\n{image_text}\n"
 _join_images = "\n"
+_default_page_delimitor = "\f"  # PPR: \f ?
 
 
 def purge_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -78,16 +76,17 @@ def purge_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     for k, v in metadata.items():
         if k.startswith("/"):
             k = k[1:]
-        if k.lower() in ["creationdate", "moddate"]:
+        k=k.lower()
+        if k in ["creationdate", "moddate"]:
             try:
                 new_metadata[k] = datetime.strptime(
                     v.replace("'", ""),
                     "D:%Y%m%d%H%M%S%z").isoformat("T")
             except ValueError:
                 new_metadata[k] = v
-        elif k.lower() in map_key:
+        elif k in map_key:
             # Normliaze key with others PDF parser
-            new_metadata[map_key[k.lower()]] = v
+            new_metadata[map_key[k]] = v
         elif isinstance(v, (str, int)):
             new_metadata[k] = v
     return new_metadata
@@ -355,7 +354,7 @@ class PyPDFParser(ImagesPdfParser):
             extract_images: bool = False,
             *,  # Move on top ?
             mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = "\f",  # PPR
+            pages_delimitor: str = _default_page_delimitor,
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             extract_tables: Optional[Literal["markdown"]] = None,  # FIXME
 
@@ -426,9 +425,10 @@ class PyPDFParser(ImagesPdfParser):
         with (blob.as_bytes_io() as pdf_file_obj):  # type: ignore[attr-defined]
             pdf_reader = pypdf.PdfReader(pdf_file_obj, password=self.password)
 
-            metadata = purge_metadata(
+            doc_metadata = purge_metadata(
                 pdf_reader.metadata | {
-                    "source": blob.source
+                    "source": blob.source,
+                    "total_pages": len(pdf_reader.pages),
                 })
             single_texts = []
             for page_number, page in enumerate(pdf_reader.pages):
@@ -438,14 +438,14 @@ class PyPDFParser(ImagesPdfParser):
                 if self.mode == "paged":
                     yield Document(
                         page_content=all_text,
-                        metadata=metadata | {"page": page_number},
+                        metadata=doc_metadata | {"page": page_number},
                     )
                 else:
                     single_texts.append(all_text)
             if self.mode == "single":
                 yield Document(
                     page_content=self.pages_delimitor.join(single_texts),
-                    metadata=metadata
+                    metadata=doc_metadata
                 )
 
     def extract_images_from_page(self, page: pypdf._page.PageObject) -> str:
@@ -472,13 +472,12 @@ class PyPDFParser(ImagesPdfParser):
                 else:
                     warnings.warn("Unknown PDF Filter!")
         return _format_image_str.format(
-            images=_join_images.join(
+            image_text=_join_images.join(
                 [text for text in self.convert_image_to_text(images)])
         )
 
 
 from pdfminer.converter import *
-from pdfminer.layout import LAParams
 from pdfminer.pdfinterp import PDFPageInterpreter, PDFResourceManager
 from pdfminer.pdfpage import PDFPage
 from pdfminer.layout import *
@@ -488,11 +487,11 @@ class PDFMinerParser(ImagesPdfParser):
     """Parse `PDF` using `PDFMiner`."""
 
     def __init__(self,
+                 extract_images: bool = False,
                  *,
                  password: Optional[str] = None,
-                 mode: Literal["single", "paged"] = "paged",
-                 pages_delimitor: str = "\f",  # PPR
-                 extract_images: bool = False,
+                 mode: Literal["single", "paged"] = "single",
+                 pages_delimitor: str = _default_page_delimitor,
                  images_to_text: CONVERT_IMAGE_TO_TEXT = None,
 
                  concatenate_pages: Optional[bool] = None,
@@ -522,13 +521,18 @@ class PDFMinerParser(ImagesPdfParser):
         self.password = password
         self.extract_images = extract_images
         self.images_to_text = images_to_text
+        self.pages_delimitor = pages_delimitor
+        if extract_images:
+            logger.warning("To replicate a bug from the previous version, "
+                           "force the mode to 'paged'")  # PPR
+            self.mode = "paged"
+
         if concatenate_pages is not None:
             warnings.warn(
                 "`concatenate_pages` parameter is deprecated. "
                 "Use `mode='single'` instead."
             )
             mode = "single" if concatenate_pages else "paged"
-            self.pages_delimitor = pages_delimitor
             if mode != self.mode:
                 warnings.warn(
                     f"Overriding `concatenate_pages` to "
@@ -713,7 +717,7 @@ class PyMuPDFParser(ImagesPdfParser):
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = "\f",  # PPR
+            pages_delimitor: str = _default_page_delimitor,
             extract_images: bool = False,
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             extract_tables: Optional[Literal["markdown"]] = None,
@@ -768,21 +772,27 @@ class PyMuPDFParser(ImagesPdfParser):
                     doc = pymupdf.open(stream=file_path, filetype="pdf")
                 if doc.is_encrypted:
                     doc.authenticate(self.password)
-                if self.mode == "paged":
-                    for page in doc:
+                doc_metadata = self._extract_metadata(doc, blob)
+                full_content = []
+                for page in doc:
+                    text_from_page = self._get_page_content(doc, page, blob)
+                    image_from_page = ""  # PPR: todo
+                    all_text = _merge_text_and_extras(image_from_page,
+                                                      text_from_page)
+                    if self.mode == "paged":
                         yield Document(
-                            page_content=self._get_page_content(doc, page, blob),
-                            metadata=(self._extract_metadata(doc, blob) |
-                                      {"page": page.number + 1}),
+                            page_content=all_text,
+                            metadata=(doc_metadata |
+                                      {"page": page.number}),
                         )
+                    else:
+                        full_content.append(all_text)
 
-                elif self.mode == "single":
-                    text = self.pages_delimitor.join(
-                        self._get_page_content(doc, page, blob) for page in doc
+                if self.mode == "single":
+                    yield Document(
+                        page_content=self.pages_delimitor.join(full_content),
+                        metadata=doc_metadata
                     )
-                    yield Document(page_content=text,
-                                   metadata=self._extract_metadata(doc, blob)
-                                   )
 
     def _get_page_content(
             self, doc: pymupdf.pymupdf.Document, page: pymupdf.pymupdf.Page, blob: Blob
@@ -831,11 +841,11 @@ class PyMuPDFParser(ImagesPdfParser):
         import pymupdf
 
         img_list = page.get_images()
-        imgs = []
+        images = []
         for img in img_list:
             xref = img[0]
             pix = pymupdf.Pixmap(doc, xref)
-            imgs.append(
+            images.append(
                 np.frombuffer(pix.samples, dtype=np.uint8).reshape(
                     pix.height, pix.width, -1
                 )
@@ -867,11 +877,11 @@ class PyPDFium2Parser(ImagesPdfParser):
     _lock = threading.Lock()
 
     def __init__(self,
+                 extract_images: bool = False,
                  *,
                  password: Optional[str] = None,
                  mode: Literal["single", "paged"] = "paged",
-                 pages_delimitor: str = "\f",  # PPR
-                 extract_images: bool = False,
+                 pages_delimitor: str = _default_page_delimitor,
                  images_to_text: CONVERT_IMAGE_TO_TEXT = None,
 
                  ) -> None:
@@ -963,17 +973,17 @@ class PDFPlumberParser(ImagesPdfParser):
 
     def __init__(
             self,
+            text_kwargs: Optional[Mapping[str, Any]] = None,
+            dedupe: bool = False,
+            extract_images: bool = False,
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = "\f",  # PPR
-            extract_images: bool = False,
+            pages_delimitor: str = _default_page_delimitor,
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
             extract_tables_settings: Optional[Dict[str, Any]] = None,
 
-            text_kwargs: Optional[Mapping[str, Any]] = None,
-            dedupe: bool = False,
     ) -> None:
         """Initialize the parser.
 
@@ -1056,7 +1066,7 @@ class PDFPlumberParser(ImagesPdfParser):
                         page_content=all_text,
                         metadata=(doc_metadata |
                                   {
-                                      "page": page.page_number,
+                                      "page": page.page_number - 1,
                                   }),
                     )
                 else:
@@ -1492,7 +1502,7 @@ class PyMuPDF4LLMParser(ImagesPdfParser):
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = "\f",  # PPRPPR: non pris en compte sans patch
+            pages_delimitor: str = _default_page_delimitor,
             to_markdown_kwargs: Optional[Mapping[str, Any]] = None,
     ) -> None:
         """Initialize the parser.

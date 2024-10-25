@@ -114,10 +114,10 @@ class UnstructuredPDFParser(ImagesPdfParser):
             post_processors: Optional[list[Callable[[str], str]]] = None,
             # SDK parameters
             api_key: Optional[str] = None,
-            client: Optional[UnstructuredClient],
+            client: Optional[UnstructuredClient] = None,
             url: Optional[str] = None,
             web_url: Optional[str] = None,
-            images_to_text: CONVERT_IMAGE_TO_TEXT,
+            images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             **unstructured_kwargs: Any,
 
     ) -> None:
@@ -178,7 +178,9 @@ class UnstructuredPDFParser(ImagesPdfParser):
         if not self.partition_via_api:
             unstructured_kwargs["metadata_filename"] = (
                     blob.path or blob.metadata.get("source"))
-        page_number=1
+        if self.mode != "elements":
+            unstructured_kwargs["include_page_breaks"] = True
+        page_number=0
         with (blob.as_bytes_io() as pdf_file_obj):
             _single_doc_loader=_SingleDocumentLoader(
                 file=pdf_file_obj,
@@ -241,7 +243,11 @@ class UnstructuredPDFParser(ImagesPdfParser):
                 if self.mode == "single":
                     yield Document(page_content="\n".join(page_content),
                                    metadata=doc_metadata)
-
+                else:
+                    if page_content:
+                        yield Document(page_content="\n".join(page_content),
+                                       metadata=doc_metadata|
+                                                         {"page": page_number})
 
 class UnstructuredPDFLoader(BasePDFLoader):
     def __init__(self,
