@@ -245,6 +245,8 @@ class PyPDFLoader(BasePDFLoader):
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             mode: Literal["single", "paged"] = "paged",
             pages_delimitor: str = "\f",  # PPR
+            extract_tables: Optional[Literal["markdown"]] = None,  # FIXME
+
             extraction_mode: Literal["plain", "layout"] = "plain",
             extraction_kwargs: Optional[Dict] = None,
     ) -> None:
@@ -556,19 +558,19 @@ class PDFPlumberLoader(BasePDFLoader):
             file_path: str,
             *,
             text_kwargs: Optional[Mapping[str, Any]] = {
-                # MUST be True, but it's False for compatibility reasons
                 "use_text_flow": False,
                 "keep_blank_chars": False,
             },
             dedupe: bool = False,
             headers: Optional[Dict] = None,
-            extract_images: bool = False,
-            images_to_text: CONVERT_IMAGE_TO_TEXT = None,
 
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
+            extract_images: bool = False,
+            images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             pages_delimitor: str = "\f",  # PPR
-            extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
+            extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,  # FIXME: auto ?
+
             extract_tables_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize with a file path."""
@@ -1082,6 +1084,8 @@ class PyMuPDF4LLMLoader(BasePDFLoader):
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
             pages_delimitor: str = "\f",  # PPR
+            extract_images: bool = False,  # FIXME
+            extract_tables: Optional[Literal["markdown"]] = None,  # FIXME
 
             **kwargs: Any,
     ) -> None:

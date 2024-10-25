@@ -64,6 +64,9 @@ _PDF_FILTER_WITHOUT_LOSS = [
 
 logger = logging.getLogger(__name__)
 
+_format_image_str = "\n{image_text}\n"
+_join_images = "\n"
+
 
 def purge_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     """Purge metadata from unwanted keys."""
@@ -88,6 +91,26 @@ def purge_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         elif isinstance(v, (str, int)):
             new_metadata[k] = v
     return new_metadata
+
+
+def _merge_text_and_extras(extra, text_from_page):
+    # insert image/table, if possible, between two paragraphs
+    if extra:
+        sep = "\n\n"
+        pos = text_from_page.rfind(sep)
+        if pos == -1:
+            sep = "\n"
+            pos = text_from_page.rfind(sep)
+        if pos != -1:
+            all_text = (text_from_page[:pos] +
+                        sep +
+                        extra +
+                        text_from_page[pos:])
+        else:
+            all_text = text_from_page + extra
+    else:
+        all_text = text_from_page
+    return all_text
 
 
 @deprecated(since="3.0.0",
@@ -334,6 +357,7 @@ class PyPDFParser(ImagesPdfParser):
             mode: Literal["single", "paged"] = "paged",
             pages_delimitor: str = "\f",  # PPR
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
+            extract_tables: Optional[Literal["markdown"]] = None,  # FIXME
 
             extraction_mode: Literal["plain", "layout"] = "plain",
             extraction_kwargs: Optional[Dict[str, Any]] = None,
@@ -410,22 +434,7 @@ class PyPDFParser(ImagesPdfParser):
             for page_number, page in enumerate(pdf_reader.pages):
                 text_from_page = _extract_text_from_page(page=page)
                 image_from_page = self.extract_images_from_page(page)
-                if image_from_page:
-                    # insert image, if possible, between two paragraphs
-                    sep = "\n\n"
-                    pos = text_from_page.rfind(sep)
-                    if pos == -1:
-                        sep = "\n"
-                        pos = text_from_page.rfind(sep)
-                    if pos != -1:
-                        all_text = (text_from_page[:pos] +
-                                    sep +
-                                    image_from_page +
-                                    text_from_page[pos:])
-                    else:
-                        all_text = text_from_page + image_from_page
-                else:
-                    all_text = text_from_page
+                all_text = _merge_text_and_extras(image_from_page, text_from_page)
                 if self.mode == "paged":
                     yield Document(
                         page_content=all_text,
@@ -462,7 +471,10 @@ class PyPDFParser(ImagesPdfParser):
 
                 else:
                     warnings.warn("Unknown PDF Filter!")
-        return "\n\n".join([text for text in self.convert_image_to_text(images)])
+        return _format_image_str.format(
+            images=_join_images.join(
+                [text for text in self.convert_image_to_text(images)])
+        )
 
 
 from pdfminer.converter import *
@@ -596,6 +608,9 @@ class PDFMinerParser(ImagesPdfParser):
         with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
             pages = PDFPage.get_pages(pdf_file_obj, password=self.password)
             rsrcmgr = PDFResourceManager()
+            doc_metadata = purge_metadata(
+                self._get_metadata(pdf_file_obj, password=self.password))
+            doc_metadata["source"] = blob.source
 
             class Visitor(PDFLayoutAnalyzer):
                 def __init__(
@@ -620,7 +635,11 @@ class PDFMinerParser(ImagesPdfParser):
                             if self.extract_images and self.images_to_text:
                                 img = np.array(
                                     Image.open(io.BytesIO(item.stream.get_data())))
-                                text_io.write(next(self.images_to_text([img])))
+                                image_text = next(self.images_to_text([img]))
+                                if image_text:
+                                    text_io.write(_format_image_str.format(
+                                        image_text=image_text)
+                                    )
                         elif isinstance(item, LTContainer):
                             for child in item:
                                 render(child)
@@ -630,17 +649,24 @@ class PDFMinerParser(ImagesPdfParser):
             text_io = io.StringIO()
             visitor_for_all = PDFPageInterpreter(rsrcmgr,
                                                  Visitor(rsrcmgr, laparams=LAParams()))
+            all_content = []
             for i, page in enumerate(pages):
                 text_io.truncate(0)
                 text_io.seek(0)
                 visitor_for_all.process_page(page)
 
                 content = text_io.getvalue()
-                text_io.truncate(0)
-                text_io.seek(0)
-                metadata = {"source": blob.source,
-                            "page": str(i)}  # type: ignore[attr-defined]
-                yield Document(page_content=content, metadata=metadata)
+                if self.mode == "paged":
+                    text_io.truncate(0)
+                    text_io.seek(0)
+                    yield Document(page_content=content,
+                                   metadata=doc_metadata | {"page": i})
+                else:
+                    all_content.append(content)
+            if self.mode == "single":
+                yield Document(
+                    page_content=self.pages_delimitor.join(all_content),
+                    metadata=doc_metadata)
 
 
 class PyMuPDFParser(ImagesPdfParser):
@@ -746,8 +772,8 @@ class PyMuPDFParser(ImagesPdfParser):
                     for page in doc:
                         yield Document(
                             page_content=self._get_page_content(doc, page, blob),
-                            metadata={**self._extract_metadata(doc, blob),
-                                      **{"page": page.number + 1}},
+                            metadata=(self._extract_metadata(doc, blob) |
+                                      {"page": page.number + 1}),
                         )
 
                 elif self.mode == "single":
@@ -814,7 +840,10 @@ class PyMuPDFParser(ImagesPdfParser):
                     pix.height, pix.width, -1
                 )
             )
-        return "\n\n".join([text for text in self.convert_image_to_text(imgs)])
+        return _format_image_str.format(
+            image_text=_join_images.join(
+                [text for text in self.convert_image_to_text(images)])
+        )
 
     def _extract_tables_from_page(
             self, page: pymupdf.pymupdf.Page
@@ -889,18 +918,22 @@ class PyPDFium2Parser(ImagesPdfParser):
                 try:
                     for page_number, page in enumerate(pdf_reader):
                         text_page = page.get_textpage()
-                        content = text_page.get_text_range()
+                        text_from_page = "\n".join(
+                            text_page.get_text_range().splitlines())  # Replace \r\n
                         text_page.close()
-                        content += "\n" + self._extract_images_from_page(page)
+                        image_from_page = self._extract_images_from_page(page)
+                        all_text = _merge_text_and_extras(image_from_page,
+                                                          text_from_page)
                         page.close()
+
                         if self.mode == "paged":
-                            yield Document(page_content=content,
+                            yield Document(page_content=all_text,
                                            metadata={**doc_metadata,
                                                      **{
                                                          "page": page_number,
                                                      }})
                         else:
-                            full_content.append(content)
+                            full_content.append(all_text)
 
                     if self.mode == "single":
                         yield Document(
@@ -919,7 +952,10 @@ class PyPDFium2Parser(ImagesPdfParser):
         images = list(page.get_objects(filter=(pdfium_c.FPDF_PAGEOBJ_IMAGE,)))
 
         images = list(map(lambda x: x.get_bitmap().to_numpy(), images))
-        return "\n\n".join([text for text in self.convert_image_to_text(images)])
+        return _format_image_str.format(
+            image_text=_join_images.join(
+                [text for text in self.convert_image_to_text(images)])
+        )
 
 
 class PDFPlumberParser(ImagesPdfParser):
@@ -938,14 +974,13 @@ class PDFPlumberParser(ImagesPdfParser):
 
             text_kwargs: Optional[Mapping[str, Any]] = None,
             dedupe: bool = False,
-            include_page_breaks: bool = False,  # PPR vs unstructured
     ) -> None:
         """Initialize the parser.
 
         Args:
             password: Password to open the PDF.
             mode: Extraction mode to use. Either "single" or "paged".
-                        extract_images: Whether to extract images from PDF.
+            extract_images: Whether to extract images from PDF.
             images_to_text: Function to extract text from images.
             extract_tables: Whether to extract tables from PDF.
 
@@ -984,199 +1019,66 @@ class PDFPlumberParser(ImagesPdfParser):
         with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
             doc = pdfplumber.open(file_path,
                                   password=self.password)  # open document
-            if self.mode == "paged":
-                yield from self._process_mode_paged(blob, doc)
-            elif self.mode == "elements":  # PPR: elements ?
-                yield from self._process_mode_elements(blob, doc)
-            elif self.mode == "single":
-                yield from self._process_mode_single(blob, doc)
-            else:
-                raise ValueError("mode must be single, elements or paged")
-
-    def _process_mode_single(self, blob: Blob, doc: pdfplumber.pdf.PDF):
-        # TODO: avec ou sans tables
-        from pdfplumber.utils import geometry  # import WordExctractor, TextMap
-        contents = []
-        tables_as_html = []
-        images = []
-        for page in doc.pages:
-            tables_bbox: List[Tuple[
-                float, float, float, float]] = self._extract_tables_bbox_from_page(
-                page)
-            tables_content = self._extract_tables_from_page(page)
-            images_bbox = [geometry.obj_to_bbox(image) for image in page.images]
-            images_content = self._extract_images_from_page(page)
-            images.extend(images_content)
-            page_content = self._process_page_content(
-                page,
-                tables_bbox,
-                tables_content,
-                images_bbox,
-                images_content)
-            contents.append(page_content)
-            tables_as_html.extend([self._convert_table(table)
-                                   for
-                                   table in tables_content])
-        yield Document(
-            page_content=self.pages_delimitor.join(contents),
-            metadata=dict(
-                {
-                    "source": blob.source,  # type: ignore[attr-defined]
-                    "file_path": blob.source,  # type: ignore[attr-defined]
-                    "total_pages": len(doc.pages),
-                    "tables_as_html": tables_as_html,
-                    "images": images,
-                },
-                **{
-                    k: doc.metadata[k]
-                    for k in doc.metadata
-                    if type(doc.metadata[k]) in [str, int]
-                }),
-
-        )
-
-    def _process_mode_paged(self, blob: Blob, doc: pdfplumber.pdf.PDF):
-        from pdfplumber.utils import geometry  # import WordExctractor, TextMap
-        for page in doc.pages:
-            tables_bbox: List[Tuple[
-                float, float, float, float]] = self._extract_tables_bbox_from_page(
-                page)
-            tables_content = self._extract_tables_from_page(page)
-            images_bbox = [geometry.obj_to_bbox(image) for image in page.images]
-            images_content = self._extract_images_from_page(page)
-            page_content = self._process_page_content(
-                page,
-                tables_bbox,
-                tables_content,
-                images_bbox,
-                images_content)
-            yield Document(
-                page_content=page_content,
-                metadata=dict(
-                    {
-                        "source": blob.source,  # type: ignore[attr-defined]
-                        "file_path": blob.source,  # type: ignore[attr-defined]
-                        "page": page.page_number - 1,
-                        "total_pages": len(doc.pages),
-                        "tables_as_html": [self._convert_table_to_html(table)
-                                           for
-                                           table in tables_content],
-                        "images": images_content,
-                    },
-                    **{
-                        k: doc.metadata[k]
-                        for k in doc.metadata
-                        if type(doc.metadata[k]) in [str, int]
-                    }),
-
-            )
-
-    def _process_mode_elements(self, blob: Blob, doc: pdfplumber.pdf.PDF):
-        from pdfplumber.utils import geometry
-        for page in doc.pages:
-            tables_bbox: List[Tuple[
-                float, float, float, float]] = self._extract_tables_bbox_from_page(
-                page)
-            tables_content = self._extract_tables_from_page(page)
-            images_bbox = [geometry.obj_to_bbox(image) for image in page.images]
-            images_content = self._extract_images_from_page(page)
-            for content in self._split_page_content(
-                    page, tables_bbox, tables_content, images_bbox, images_content,
-                    **self.text_kwargs):
-                if isinstance(content, str):
-                    yield Document(
-                        page_content=content,
-                        metadata=dict(
-                            {
-                                "source": blob.source,
-                                # type: ignore[attr-defined]
-                                "file_path": blob.source,
-                                # type: ignore[attr-defined]
-                                "page": page.page_number - 1,
-                                "total_pages": len(doc.pages),
-                                "tables_as_html": [
-                                    self._convert_table_to_html(table)
-                                    for
-                                    table in tables_content]
-                            },
-                            **{
+            # TODO: avec ou sans tables
+            from pdfplumber.utils import geometry  # import WordExctractor, TextMap
+            contents = []
+            tables_as_html = []
+            images = []
+            doc_metadata = ({
                                 k: doc.metadata[k]
                                 for k in doc.metadata
                                 if type(doc.metadata[k]) in [str, int]
-                            }),
-                    )
-                elif isinstance(content, np.ndarray):
-                    # If change the interface to return list[BaseMedia]
-                    # in place of list[Document]
-                    # yield Blob.from_data(content,
-                    #                      mime_type="image/jpeg",  # PPR
-                    #                      metadata={
-                    #                          "source": blob.source,
-                    #                          "page": page.page_number - 1,
-                    #                          "total_pages": len(doc.pages),
-                    #                      }
-                    #                      )
-                    yield Document(next(self.convert_image_to_text([content])),
-                                   metadata=dict({
-                                       "source": blob.source,
-                                       "type": "image",  # PPR vs unstructured
-                                       "page": page.page_number - 1,
-                                       "total_pages": len(doc.pages),
-                                       "images": [content]
-                                   },
-                                       **{
-                                           k: doc.metadata[k]
-                                           for k in doc.metadata
-                                           if type(doc.metadata[k]) in [str, int]
-                                       }),
-
-                                   )
+                            } |
+                            {
+                                "source": blob.source,  # type: ignore[attr-defined]
+                                "file_path": blob.source,  # type: ignore[attr-defined]
+                                "total_pages": len(doc.pages),
+                            })
+            doc_metadata = purge_metadata(doc_metadata)
+            for page in doc.pages:
+                tables_bbox: List[Tuple[
+                    float, float, float, float]] = self._extract_tables_bbox_from_page(
+                    page)
+                tables_content = self._extract_tables_from_page(page)
+                images_bbox = [geometry.obj_to_bbox(image) for image in page.images]
+                image_from_page = self._extract_images_from_page(page)
+                if self.dedupe:
+                    text_from_page = page.dedupe_chars().extract_text(
+                        **self.text_kwargs)
                 else:
-                    yield Document(
-                        page_content=self._convert_table(content),
-                        metadata=dict(
-                            {
-                                "source": blob.source,
-                                "type": "table",  # PPR table
-                                "file_path": blob.source,
-                                "page": page.page_number - 1,
-                                "total_pages": len(doc.pages),
-                                "tables_as_html": [
-                                    self._convert_table_to_html(table)
-                                    for
-                                    table in tables_content]
-                            },
-                            **{
-                                k: doc.metadata[k]
-                                for k in doc.metadata
-                                if type(doc.metadata[k]) in [str, int]
-                            }),
-                    )
-        return
+                    text_from_page = page.extract_text(**self.text_kwargs)
 
-    def _process_page_content(
-            self,
-            page: pdfplumber.page.Page,
-            tables_bbox: List[Tuple[float, float, float, float]],
-            tables_content: List[str],
-            images_bbox: List[Tuple[float, float, float, float]],
-            images_content: List[np.ndarray],
-    ) -> str:
-        page.extract_words()
-        result = []
-        for content in self._split_page_content(
-                page, tables_bbox, tables_content, images_bbox, images_content,
-                **self.text_kwargs
-        ):
-            if isinstance(content, str):
-                result.append(content)
-            elif isinstance(content, np.ndarray):
-                result.append("\n".join(self.convert_image_to_text([content])))
-            elif isinstance(content, List):
-                result.append(self._convert_table(content))  # PPR
-            else:
-                assert False, f"Unknown content type: {type(content)}"
-        return " ".join(result)
+                all_text = _merge_text_and_extras(image_from_page,
+                                                  text_from_page)
+
+                if self.mode == "paged":
+                    yield Document(
+                        page_content=all_text,
+                        metadata=(doc_metadata |
+                                  {
+                                      "page": page.page_number,
+                                  }),
+                    )
+                else:
+                    contents.append(all_text)
+                # "tables_as_html": [self._convert_table_to_html(table)
+                #                    for
+                #                    table in tables_content],
+                # "images": images_content,
+                # tables_as_html.extend([self._convert_table(table)
+                #                        for
+                #                        table in tables_content])
+            if self.mode == "single":
+                yield Document(
+                    page_content=self.pages_delimitor.join(contents),
+                    metadata=doc_metadata,
+                )
+
+    def _process_page_content(self, page: pdfplumber.page.Page) -> str:
+        """Process the page content based on dedupe."""
+        if self.dedupe:
+            return page.dedupe_chars().extract_text(**self.text_kwargs)
+        return page.extract_text(**self.text_kwargs)
 
     def _split_page_content(
             self,
@@ -1257,10 +1159,10 @@ class PDFPlumberParser(ImagesPdfParser):
 
     def _extract_images_from_page(
             self,
-            page: pdfplumber.page.Page) -> List[np.ndarray]:  # PPR
+            page: pdfplumber.page.Page) -> str:
         """Extract images from page and get the text with RapidOCR."""
         if not self.extract_images:
-            return []
+            return ""
 
         images = []
         for img in page.images:
@@ -1280,7 +1182,10 @@ class PDFPlumberParser(ImagesPdfParser):
             else:
                 warnings.warn("Unknown PDF Filter!")
 
-        return images
+        return _format_image_str.format(
+            image_text=_join_images.join(
+                [text for text in self.convert_image_to_text(images)])
+        )
 
     def _extract_tables_bbox_from_page(self,
                                        page: pdfplumber.page.Page,

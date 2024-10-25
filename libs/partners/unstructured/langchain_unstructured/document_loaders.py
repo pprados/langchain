@@ -17,7 +17,7 @@ from unstructured_client.models import operations, shared  # type: ignore
 
 from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_community.document_loaders.parsers.pdf import CONVERT_IMAGE_TO_TEXT, \
-    ImagesPdfParser, PDFMinerParser, purge_metadata
+    ImagesPdfParser, PDFMinerParser, purge_metadata, _format_image_str
 from langchain_community.document_loaders.pdf import BasePDFLoader
 from langchain_core.document_loaders.base import BaseLoader, BaseBlobParser
 from langchain_core.documents import Document
@@ -190,7 +190,7 @@ class UnstructuredPDFParser(ImagesPdfParser):
                 **unstructured_kwargs,
             )
             path = Path(blob.source or blob.path)
-            metadata=purge_metadata(
+            doc_metadata=purge_metadata(
                 _single_doc_loader._get_metadata() | {
                     "source": blob.source,
                     "file_directory": str(path.parent),
@@ -201,18 +201,20 @@ class UnstructuredPDFParser(ImagesPdfParser):
                  yield from _single_doc_loader.lazy_load()
             elif self.mode in ("paged","single"):
 
-                if self.mode == "paged":
-                    metadata["page"]= page_number
                 page_content=[]
-
+                page_break = False
                 for doc in _single_doc_loader.lazy_load():
+                    if page_break:
+                        page_content.append(self.pages_delimitor)
+                        page_break = False
+
                     if (doc.metadata.get("category") == "Image"
                         and "image_path" in doc.metadata):
                         image=np.array(Image.open(doc.metadata["image_path"]))
-                        page_content.append(next(self.convert_image_to_text([image])))
+                        image_text=next(self.convert_image_to_text([image]))
+                        if image_text:
+                            page_content.append(_format_image_str.format(image_text=image_text))
 
-                    elif doc.metadata.get("category") == "FigureCaption":
-                        pass
                     elif doc.metadata.get("category") == "Table":
                         pass
                     elif doc.metadata.get("category") == "Title":
@@ -224,11 +226,12 @@ class UnstructuredPDFParser(ImagesPdfParser):
                     elif doc.metadata.get("category") == "PageBreak":
                         if self.mode == "paged":
                             yield Document(page_content="\n".join(page_content),
-                                           metadata=metadata)
+                                           metadata=(doc_metadata|
+                                                     {"page": page_number}))
                             page_content.clear()
                             page_number += 1
                         else:
-                            page_content.append(self.pages_delimitor)
+                            page_break = True
                     else:
                         # NarrativeText, UncategorizedText, Formula, FigureCaption,
                         # ListItem, Address, EmailAddress
@@ -237,7 +240,7 @@ class UnstructuredPDFParser(ImagesPdfParser):
                         page_content.append(doc.page_content)
                 if self.mode == "single":
                     yield Document(page_content="\n".join(page_content),
-                                   metadata=metadata)
+                                   metadata=doc_metadata)
 
 
 class UnstructuredPDFLoader(BasePDFLoader):
@@ -245,7 +248,7 @@ class UnstructuredPDFLoader(BasePDFLoader):
                  file_path: Union[str, List[str], Path, List[Path]],
                  *,
                  headers: Optional[Dict] = None,
-                 mode: Literal["single", "paged", "elements"] = "single",
+                 mode: Literal["single", "paged"] = "single",
                  pages_delimitor: str = "\n\n",
                  extract_images: bool = False,
                  partition_via_api: bool = False,
