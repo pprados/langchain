@@ -5,6 +5,8 @@ import logging
 import threading
 import warnings
 from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -76,7 +78,7 @@ def purge_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     for k, v in metadata.items():
         if k.startswith("/"):
             k = k[1:]
-        k=k.lower()
+        k = k.lower()
         if k in ["creationdate", "moddate"]:
             try:
                 new_metadata[k] = datetime.strptime(
@@ -608,8 +610,7 @@ class PDFMinerParser(ImagesPdfParser):
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
         """Lazily parse the blob."""
         import io
-
-        with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
+        with blob.as_bytes_io() as pdf_file_obj, TemporaryDirectory() as tempdir:
             pages = PDFPage.get_pages(pdf_file_obj, password=self.password)
             rsrcmgr = PDFResourceManager()
             doc_metadata = purge_metadata(
@@ -637,8 +638,10 @@ class PDFMinerParser(ImagesPdfParser):
                             text_io.write(item.get_text())
                         elif isinstance(item, LTImage):
                             if self.extract_images and self.images_to_text:
-                                img = np.array(
-                                    Image.open(io.BytesIO(item.stream.get_data())))
+                                from pdfminer.image import ImageWriter
+                                image_writer = ImageWriter(tempdir)
+                                filename = image_writer.export_image(item)
+                                img = np.array(Image.open(Path(tempdir) / filename))
                                 image_text = next(self.images_to_text([img]))
                                 if image_text:
                                     text_io.write(_format_image_str.format(
