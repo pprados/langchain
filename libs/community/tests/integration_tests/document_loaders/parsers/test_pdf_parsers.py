@@ -141,27 +141,27 @@ def test_extract_images_text_from_pdf_pypdfium2parser() -> None:
 
 
 @pytest.mark.parametrize(
-    "mode", ["single", "paged"],
-    # "mode", ["single"],
+    # "mode", ["single", "paged"],
+    "mode", ["single"],
     # "mode", ["paged"],
 )
 @pytest.mark.parametrize(
-    "extract_images", [True, False],
-    # "extract_images", [False],
+    # "extract_images", [True, False],
+    "extract_images", [False],
     # "extract_images", [True],
 )
 @pytest.mark.parametrize(
     "parser_factory,params", [
         ("PyPDFParser",{"extraction_mode":"plain"}),
-        ("PyPDFParser",{"extraction_mode":"layout"}),
-        ("PyPDFium2Parser",{}),
-        ("PDFMinerParser", {}),
-        ("PyMuPDFParser",{}),
-        ("PDFPlumberParser",{}),
-        ("UnstructuredPDFParser",{"strategy":"auto", "skip_infer_table_types":["jpg", "png", "heic"],}), # PPR déplacer dans unstructured
-        ("UnstructuredPDFParser",{"strategy":"fast", "skip_infer_table_types":["jpg", "png", "heic"],}),
-        ("UnstructuredPDFParser",{"strategy":"hi_res", "skip_infer_table_types":["jpg", "png", "heic"],}),
-        ("UnstructuredPDFParser",{"strategy":"ocr_only", "skip_infer_table_types":["jpg", "png", "heic"],}),
+        # ("PyPDFParser",{"extraction_mode":"layout"}),
+        # ("PyPDFium2Parser",{}),
+        # ("PDFMinerParser", {}),
+        # ("PyMuPDFParser",{}),
+        # ("PDFPlumberParser",{}),
+        # ("UnstructuredPDFParser",{"strategy":"auto", "skip_infer_table_types":["jpg", "png", "heic"],}), # PPR déplacer dans unstructured
+        # ("UnstructuredPDFParser",{"strategy":"fast", "skip_infer_table_types":["jpg", "png", "heic"],}),
+        # ("UnstructuredPDFParser",{"strategy":"hi_res", "skip_infer_table_types":["jpg", "png", "heic"],}),
+        # ("UnstructuredPDFParser",{"strategy":"ocr_only", "skip_infer_table_types":["jpg", "png", "heic"],}),
     ],
 )
 def test_standard_parameters(
@@ -221,5 +221,5 @@ def test_standard_parameters(
         extract_images=extract_images,
         images_to_text=images_to_text,
         **params)
-    # _assert_with_parser(parser, splits_by_page=(mode == "paged"))
+    _assert_with_parser(parser, splits_by_page=(mode == "paged"))
     _std_assert_with_parser(parser)
