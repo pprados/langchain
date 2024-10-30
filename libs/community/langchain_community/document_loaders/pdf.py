@@ -33,7 +33,7 @@ from langchain_community.document_loaders.parsers.pdf import (
     PyMuPDFParser,
     PyPDFium2Parser,
     PyPDFParser, PyMuPDF4LLMParser, PDFRouterParser,
-    CONVERT_IMAGE_TO_TEXT
+    CONVERT_IMAGE_TO_TEXT, _default_page_delimitor
 )
 from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
 from langchain_core._api.deprecation import deprecated, warn_deprecated
@@ -245,9 +245,7 @@ class PyPDFLoader(BasePDFLoader):
             *,  # Move after the file_path ?
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
             mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = "\f",  # PPR
-            extract_tables: Optional[Literal["markdown"]] = None,  # FIXME
-
+            pages_delimitor: str = _default_page_delimitor,
             extraction_mode: Literal["plain", "layout"] = "plain",
             extraction_kwargs: Optional[Dict] = None,
     ) -> None:
@@ -289,7 +287,7 @@ class PyPDFium2Loader(BasePDFLoader):
             file_path: str,
             *,
             mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = "\f",  # PPR
+            pages_delimitor: str = _default_page_delimitor,
             password: Optional[str] = None,
             extract_images: bool = False,
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
@@ -321,7 +319,7 @@ class PyPDFium2Loader(BasePDFLoader):
 @deprecated(
     since="0.3.X",  # TODO: update version 0.3.X
     removal="1.0",
-    alternative="langchain_community.document_loaders.generic",
+    alternative="langchain_community.document_loaders.generic.GenericLoader",
 )
 class PyPDFDirectoryLoader(BaseLoader):
     """Load a directory with `PDF` files using `pypdf` and chunks at character level.
@@ -341,7 +339,6 @@ class PyPDFDirectoryLoader(BaseLoader):
             mode: Literal["single", "paged"] = "paged",
             extract_images: bool = False,
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-            extract_tables: Optional[Literal["markdown"]] = None,
             headers: Optional[Dict] = None,
             extraction_mode: Literal["plain", "page"] = "plain",
             extraction_kwargs: Optional[Dict] = None,
@@ -355,7 +352,6 @@ class PyPDFDirectoryLoader(BaseLoader):
         self.silent_errors = silent_errors
         self.extract_images = extract_images
         self.images_to_text = images_to_text
-        self.extract_tables = extract_tables
         self.headers = headers
         self.extraction_mode = extraction_mode
         self.extraction_kwargs = extraction_kwargs
@@ -377,7 +373,6 @@ class PyPDFDirectoryLoader(BaseLoader):
                                              mode=self.mode,
                                              extract_images=self.extract_images,
                                              images_to_text=self.images_to_text,
-                                             extract_tables=self.extract_tables,
                                              headers=self.headers,
                                              extraction_mode=self.extraction_mode,
                                              extraction_kwargs=self.extraction_kwargs,
@@ -403,7 +398,7 @@ class PDFMinerLoader(BasePDFLoader):
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = "\f",  # PPR: page_delimiter
+            pages_delimitor: str = _default_page_delimitor,
             extract_images: bool = False,
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
 
@@ -499,10 +494,14 @@ class PyMuPDFLoader(BasePDFLoader):
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = "\f",  # PPR
+            pages_delimitor: str = _default_page_delimitor,
             extract_images: bool = False,
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-            extract_tables: Optional[Literal["markdown"]] = None,
+            extract_tables: Union[
+                Literal["csv"],
+                Literal["markdown"],
+                Literal["html"],
+                None] = None,
 
             headers: Optional[Dict] = None,
             extract_tables_settings: Optional[Dict[str, Any]] = None,
@@ -569,7 +568,7 @@ class PDFPlumberLoader(BasePDFLoader):
             mode: Literal["single", "paged"] = "paged",
             extract_images: bool = False,
             images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-            pages_delimitor: str = "\f",  # PPR
+            pages_delimitor: str = _default_page_delimitor,
             extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,  # FIXME: auto ?
 
             extract_tables_settings: Optional[Dict[str, Any]] = None,
@@ -1084,7 +1083,7 @@ class PyMuPDF4LLMLoader(BasePDFLoader):
             *,
             password: Optional[str] = None,
             mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = "\f",  # PPR
+            pages_delimitor: str = _default_page_delimitor,
             extract_images: bool = False,  # FIXME
             extract_tables: Optional[Literal["markdown"]] = None,  # FIXME
 
