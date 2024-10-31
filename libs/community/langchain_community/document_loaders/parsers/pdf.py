@@ -1085,10 +1085,10 @@ class PDFPlumberParser(ImagesPdfParser):
                     if isinstance(content, str):  # Text
                         page_text.append(content)
                     elif isinstance(content, list):  # Table
-                        page_text.append("\n\n" + self._convert_table(content))
+                        page_text.append(_join_tables + self._convert_table(content))
                     else:  # Image
                         page_text.append(
-                            "\n" + next(self.convert_image_to_text([images])))
+                            _join_images + next(self.convert_image_to_text([images])))
 
                 all_text = "".join(page_text)
 
@@ -1305,14 +1305,12 @@ class PDFPlumberParser(ImagesPdfParser):
 
     def _convert_table_to_markdown(self, table: List[List[str]]) -> str:
         """Output table content as a string in Github-markdown format."""
-        clean = True
+        clean = False
         if not table:
             return ""
         col_count = len(table[0])
-        output = "|"
 
-        output += "\n"
-        output += "|" + "|".join("" for i in range(col_count)) + "|\n"
+        output = "|" + "|".join("" for i in range(col_count)) + "|\n"
         output += "|" + "|".join("---" for i in range(col_count)) + "|\n"
 
         # skip first row in details if header is part of the table

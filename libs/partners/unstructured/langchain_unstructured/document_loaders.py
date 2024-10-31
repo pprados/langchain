@@ -10,6 +10,7 @@ from typing import IO, Any, Callable, Iterator, Optional, cast, Literal, Union, 
     BinaryIO, Tuple
 
 import numpy as np
+import pandas as pd
 from PIL import Image
 from typing_extensions import TypeAlias, List
 from unstructured_client import UnstructuredClient  # type: ignore
@@ -21,12 +22,88 @@ from langchain_community.document_loaders.parsers.pdf import CONVERT_IMAGE_TO_TE
 from langchain_community.document_loaders.pdf import BasePDFLoader
 from langchain_core.document_loaders.base import BaseLoader, BaseBlobParser
 from langchain_core.documents import Document
+from bs4 import BeautifulSoup
 
 Element: TypeAlias = Any
 
 logger = logging.getLogger(__file__)
 
 _DEFAULT_URL = "https://api.unstructuredapp.io/general/v0/general"
+
+def _transform_cell_content(value: str, conversion_ind: bool = False) -> str:
+    if value and conversion_ind is True:
+        value = html2markdown.convert(value)
+    chars = {"|": "&#124;", "\n": "<br>"}
+    for char, replacement in chars.items():
+        value = value.replace(char, replacement)
+    return value
+
+
+def convert_table(
+    html: str, content_conversion_ind: bool = False, all_cols_alignment: str = "left"
+) -> str:
+    alignment_options = {"left": " :--- ", "center": " :---: ", "right": " ---: "}
+    if all_cols_alignment not in alignment_options.keys():
+        raise ValueError(
+            "Invalid alignment option for {!r} arg. "
+            "Expected one of: {}".format(
+                "all_cols_alignment", list(alignment_options.keys())
+            )
+        )
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    if not soup.find():
+        return html
+
+    table = []
+    table_headings = []
+    table_body = []
+    table_tr = soup.find_all("tr")
+
+    try:
+        table_headings = [
+            " "
+            + _transform_cell_content(
+                th.renderContents().decode("utf-8"),
+                conversion_ind=content_conversion_ind,
+            )
+            + " "
+            for th in soup.find("tr").find_all("th")
+        ]
+    except AttributeError:
+        raise ValueError("No {!r} tag found".format("tr"))
+
+    if table_headings:
+        table.append(table_headings)
+        table_tr = table_tr[1:]
+
+    for tr in table_tr:
+        td_list = []
+        for td in tr.find_all("td"):
+            td_list.append(
+                " "
+                + _transform_cell_content(
+                    td.renderContents().decode("utf-8"),
+                    conversion_ind=content_conversion_ind,
+                )
+                + " "
+            )
+        table_body.append(td_list)
+
+    table += table_body
+    md_table_header = "|".join(
+        [""]
+        + ([" "] * len(table[0]) if not table_headings else table_headings)
+        + ["\n"]
+        + [alignment_options[all_cols_alignment]] * len(table[0])
+        + ["\n"]
+    )
+
+    md_table = md_table_header + "".join(
+        "|".join([""] + row + ["\n"]) for row in table_body
+    )
+    return md_table
 
 class UnstructuredPDFParser(ImagesPdfParser):
     """Unstructured document loader interface.
@@ -110,6 +187,7 @@ class UnstructuredPDFParser(ImagesPdfParser):
             mode: Literal["single", "paged", "elements"] = "single",
             pages_delimitor: str = "\n\n",
             extract_images: bool = False,
+            extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
             partition_via_api: bool = False,
             post_processors: Optional[list[Callable[[str], str]]] = None,
             # SDK parameters
@@ -125,7 +203,14 @@ class UnstructuredPDFParser(ImagesPdfParser):
 
         Args:
         """
+        if unstructured_kwargs.get("strategy") == "ocr_only" and extract_images:
+            logger.warning("extract_images is not supported with strategy='ocr_only")
+            extract_images= False
+        if unstructured_kwargs.get("strategy") != "hi_res" and extract_tables:
+            logger.warning("extract_tables is not supported with strategy!='hi_res'")
+            extract_tables = False
         super().__init__(extract_images, images_to_text)
+
         if client is not None:
             disallowed_params = [("api_key", api_key), ("url", url)]
             bad_params = [
@@ -161,6 +246,7 @@ class UnstructuredPDFParser(ImagesPdfParser):
             else:
                 unstructured_kwargs["extract_images_in_pdf"] = True
         self.images_to_text = images_to_text
+        self.extract_tables = extract_tables
         self.client = client
         self.partition_via_api = partition_via_api
         self.post_processors = post_processors
@@ -218,7 +304,10 @@ class UnstructuredPDFParser(ImagesPdfParser):
                             page_content.append(_format_image_str.format(image_text=image_text))
 
                     elif doc.metadata.get("category") == "Table":
-                        pass
+                        page_content.append(
+                            self._convert_table(
+                                doc.metadata.get("text_as_html"),
+                            ),)
                     elif doc.metadata.get("category") == "Title":
                         page_content.append("# "+doc.page_content)
                     elif doc.metadata.get("category") == "Header":
@@ -241,13 +330,33 @@ class UnstructuredPDFParser(ImagesPdfParser):
                             logger.warning(f"Unknown category {doc.metadata.get('category')}")
                         page_content.append(doc.page_content)
                 if self.mode == "single":
-                    yield Document(page_content="\n".join(page_content),
+                    yield Document(page_content=self.pages_delimitor.join(page_content),
                                    metadata=doc_metadata)
                 else:
                     if page_content:
                         yield Document(page_content="\n".join(page_content),
                                        metadata=doc_metadata|
                                                          {"page": page_number})
+    def _convert_table(self,html_table:Optional[str]) -> str:
+        if not html_table:
+            return ""
+        if self.extract_tables == "html":
+            return html_table
+        elif self.extract_tables == "markdown":
+            try:
+                from html_to_markdown import convert_to_markdown
+                return convert_to_markdown(html_table)
+            except ImportError:
+                raise ImportError(
+                    "beautifulsoup package not found, please install it with "
+                    "`pip install beautifulsoup`"
+                )
+            pass
+        elif self.extract_tables == "csv":
+            return pd.read_html(html_table)[0].to_csv()
+        else:
+            raise ValueError("extract_tables must be csv, markdown or html")
+
 
 class UnstructuredPDFLoader(BasePDFLoader):
     def __init__(self,
