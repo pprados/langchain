@@ -351,12 +351,12 @@ if TYPE_CHECKING:
         PDFMinerLoader,
         PDFMinerPDFasHTMLLoader,
         PDFPlumberLoader,
-        PyMuPDFLoader,
+        PDFRouterLoader,
         PyMuPDF4LLMLoader,
+        PyMuPDFLoader,
         PyPDFDirectoryLoader,
         PyPDFium2Loader,
         PyPDFLoader,
-        PDFRouterLoader,
         UnstructuredPDFLoader,
     )
     from langchain_community.document_loaders.pebblo import (

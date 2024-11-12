@@ -1,10 +1,13 @@
 """Tests for the various PDF parsers."""
+
 import os
 import re
 from pathlib import Path
 from typing import Iterator
 
 import pytest
+from langchain_unstructured import UnstructuredPDFParser
+
 from langchain_community.document_loaders.base import BaseBlobParser
 from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_community.document_loaders.parsers.pdf import (
@@ -14,22 +17,22 @@ from langchain_community.document_loaders.parsers.pdf import (
     PyPDFium2Parser,
     PyPDFParser,
 )
-from langchain_unstructured import UnstructuredPDFParser
 
 # PDFs to test parsers on.
 HELLO_PDF = Path(__file__).parent.parent.parent / "examples" / "hello.pdf"
 
 LAYOUT_PARSER_PAPER_PDF = (
-        Path(__file__).parent.parent.parent / "examples" / "layout-parser-paper.pdf"
+    Path(__file__).parent.parent.parent / "examples" / "layout-parser-paper.pdf"
 )
 
 LAYOUT_PARSER_PAPER_PASSWORD_PDF = (
-        Path(__file__).parent.parent.parent / "examples" /
-        "layout-parser-paper-password.pdf"
+    Path(__file__).parent.parent.parent
+    / "examples"
+    / "layout-parser-paper-password.pdf"
 )
 
 DUPLICATE_CHARS = (
-        Path(__file__).parent.parent.parent / "examples" / "duplicate-chars.pdf"
+    Path(__file__).parent.parent.parent / "examples" / "duplicate-chars.pdf"
 )
 
 
@@ -56,9 +59,9 @@ def _assert_with_parser(parser: BaseBlobParser, splits_by_page: bool = True) -> 
     assert isinstance(doc_generator, Iterator)
     docs = list(doc_generator)
 
-    if isinstance(parser,PDFMinerParser):  # Replicate a bug
+    if isinstance(parser, PDFMinerParser):  # Replicate a bug
         if parser.extract_images:
-            splits_by_page=True
+            splits_by_page = True
     if splits_by_page:
         assert len(docs) == 16
     else:
@@ -147,32 +150,57 @@ def test_extract_images_text_from_pdf_pypdfium2parser() -> None:
 @pytest.mark.parametrize(
     # "mode", ["single", "paged"],
     # "mode", ["single"],
-    "mode", ["paged"],  # FIXME
+    "mode",
+    ["paged"],  # FIXME
 )
 @pytest.mark.parametrize(
     # "extract_images", [True, False],
     # "extract_images", [False],
-    "extract_images", [True],  # FIXME
+    "extract_images",
+    [True],  # FIXME
 )
 @pytest.mark.parametrize(
-    "parser_factory,params", [
-        ("PyPDFParser",{"extraction_mode":"plain"}),
-        ("PyPDFParser",{"extraction_mode":"layout"}),
-        ("PyPDFium2Parser",{}),
+    "parser_factory,params",
+    [
+        ("PyPDFParser", {"extraction_mode": "plain"}),
+        ("PyPDFParser", {"extraction_mode": "layout"}),
+        ("PyPDFium2Parser", {}),
         ("PDFMinerParser", {}),
-        ("PyMuPDFParser",{}),
-        ("PDFPlumberParser",{}),
-        ("UnstructuredPDFParser",{"strategy":"auto", "skip_infer_table_types":[],}), # PPR déplacer dans unstructured
-        ("UnstructuredPDFParser",{"strategy":"fast", "skip_infer_table_types":[],}),
-        ("UnstructuredPDFParser",{"strategy":"hi_res", "skip_infer_table_types":[],}),
-        ("UnstructuredPDFParser",{"strategy":"ocr_only", "skip_infer_table_types":[],}),
+        ("PyMuPDFParser", {}),
+        ("PDFPlumberParser", {}),
+        (
+            "UnstructuredPDFParser",
+            {
+                "strategy": "auto",
+                "skip_infer_table_types": [],
+            },
+        ),  # PPR déplacer dans unstructured
+        (
+            "UnstructuredPDFParser",
+            {
+                "strategy": "fast",
+                "skip_infer_table_types": [],
+            },
+        ),
+        (
+            "UnstructuredPDFParser",
+            {
+                "strategy": "hi_res",
+                "skip_infer_table_types": [],
+            },
+        ),
+        (
+            "UnstructuredPDFParser",
+            {
+                "strategy": "ocr_only",
+                "skip_infer_table_types": [],
+            },
+        ),
     ],
 )
 def test_standard_parameters(
-        parser_factory: str,
-        params: dict,
-        mode: str,
-        extract_images: bool) -> None:
+    parser_factory: str, params: dict, mode: str, extract_images: bool
+) -> None:
     def _std_assert_with_parser(parser: BaseBlobParser) -> None:
         """Standard tests to verify that the given parser works.
 
@@ -201,12 +229,11 @@ def test_standard_parameters(
         if len(docs) > 1:
             assert metadata["page"] == 0
         if extract_images:
-            images=[]
+            images = []
             for doc in docs:
-                _HTML_image= r'<img\s+[^>]*src="([^"]+)"(?:\s+alt="([^"]*)")?(?:\s+title="([^"]*)")?[^>]*>'
-                _markdown_image=r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+\"([^\"]+)\")?\)"
-                match = re.findall(_markdown_image,
-                                 doc.page_content)
+                _HTML_image = r'<img\s+[^>]*src="([^"]+)"(?:\s+alt="([^"]*)")?(?:\s+title="([^"]*)")?[^>]*>'
+                _markdown_image = r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+\"([^\"]+)\")?\)"
+                match = re.findall(_markdown_image, doc.page_content)
                 if match:
                     images.extend(match)
             assert len(images) >= 1
@@ -216,12 +243,14 @@ def test_standard_parameters(
         blob = Blob.from_path(LAYOUT_PARSER_PAPER_PASSWORD_PDF)
         doc_generator = parser.lazy_parse(blob)
         docs = list(doc_generator)
-        assert (len(docs))
+        assert len(docs)
         parser.password = old_password
 
     """Test standard parameters."""
-    import langchain_community.document_loaders.parsers.pdf as pdf_parsers
     import langchain_unstructured as pdf_unstructured
+
+    import langchain_community.document_loaders.parsers.pdf as pdf_parsers
+
     os.environ["SCARF_NO_ANALYTICS"] = "false"
     os.environ["DO_NOT_TRACK"] = "true"
     images_to_text = lambda images: iter(["![image](.)"] * len(images))
@@ -233,37 +262,44 @@ def test_standard_parameters(
         mode=mode,
         extract_images=extract_images,
         images_to_text=images_to_text,
-        **params)
-    if (isinstance(parser, UnstructuredPDFParser)
-            and parser.unstructured_kwargs.get("strategy") == "ocr_only"):
+        **params,
+    )
+    if (
+        isinstance(parser, UnstructuredPDFParser)
+        and parser.unstructured_kwargs.get("strategy") == "ocr_only"
+    ):
         return
     _assert_with_parser(parser, splits_by_page=(mode == "paged"))
     _std_assert_with_parser(parser)
 
 
 @pytest.mark.parametrize(
-    # "mode", ["single", "paged"],
-    "mode", ["single"],  # FIXME
-    # "mode", ["paged"],
+    "mode",
+    ["single", "paged"],
 )
 @pytest.mark.parametrize(
-    # "extract_tables", ["markdown", "html", "csv", None],
-    "extract_tables", ["markdown"],
-    # "extract_tables", ["html"],
-    # "extract_tables", ["csv"],  # FIXME
+    "extract_tables",
+    ["markdown", "html", "csv", None],
 )
 @pytest.mark.parametrize(
-    "parser_factory,params", [
-        # ("PyMuPDFParser",{}),
-        # ("PDFPlumberParser",{}),
-        ("UnstructuredPDFParser",{"strategy":"hi_res", "skip_infer_table_types":[],}),
+    "parser_factory,params",
+    [
+        ("PyMuPDFParser", {}),
+        ("PDFPlumberParser", {}),
+        (
+            "UnstructuredPDFParser",
+            {
+                "strategy": "hi_res",
+                "skip_infer_table_types": [],
+            },
+        ),
     ],
 )
 def test_parser_with_table(
-        parser_factory: str,
-        params: dict,
-        mode: str,
-        extract_tables:str,
+    parser_factory: str,
+    params: dict,
+    mode: str,
+    extract_tables: str,
 ) -> None:
     def _std_assert_with_parser(parser: BaseBlobParser) -> None:
         """Standard tests to verify that the given parser works.
@@ -274,27 +310,45 @@ def test_parser_with_table(
         blob = Blob.from_path(LAYOUT_PARSER_PAPER_PDF)
         doc_generator = parser.lazy_parse(blob)
         docs = list(doc_generator)
-        tables=[]
+        tables = []
         for doc in docs:
             print(doc.page_content)  # FIXME
             if extract_tables == "markdown":
-                pattern = (r"(?s)((?:(?:[^\n]*\|)\n)"
-                           r"(?:(?:\|--[-:\s]*\|)"
-                           r"(?:[-:\s]*\|)+\n)(?:(?:[^\n]*\|)\n)+)")
+                pattern = (
+                    r"(?s)("
+                    r"(?:(?:[^\n]*\|)\n)"
+                    r"(?:\|(?:\s?:?---*:?\s?\|)+)\n"
+                    r"(?:(?:[^\n]*\|)\n)+"
+                    r")"
+                )
             elif extract_tables == "html":
-                pattern = r"(?s)<table[^>]*>(.*?)<\/table>"
-            else: # CSV
-                pattern = r'(?m)^\n^\s*"?[^",\n]+(?:\s*,\s*"?[^",\n]+"?){3,}\s*\n$'
-            matches = re.findall(pattern,
-                                 doc.page_content)
-            if matches:
-                tables.extend(matches)
-        assert len(tables) >= 2
+                pattern = r"(?s)(<table[^>]*>(?:.*?)<\/table>)"
+            elif extract_tables == "csv":
+                pattern = (
+                    r"((?:(?:"
+                    r'(?:"(?:[^"]*(?:""[^"]*)*)"'
+                    r"|[^\n,]*),){2,}"
+                    r"(?:"
+                    r'(?:"(?:[^"]*(?:""[^"]*)*)"'
+                    r"|[^\n]*))\n){2,})"
+                )
+            else:
+                pattern = None
+            if pattern:
+                matches = re.findall(pattern, doc.page_content)
+                if matches:
+                    tables.extend(matches)
+        if extract_tables:
+            assert len(tables) >= 2
+        else:
+            assert not len(tables)
 
     """Test standard parameters."""
 
-    import langchain_community.document_loaders.parsers.pdf as pdf_parsers
     import langchain_unstructured as pdf_unstructured
+
+    import langchain_community.document_loaders.parsers.pdf as pdf_parsers
+
     os.environ["SCARF_NO_ANALYTICS"] = "false"
     os.environ["DO_NOT_TRACK"] = "true"
     images_to_text = lambda images: iter(["<IMAGE />"] * len(images))
@@ -306,5 +360,6 @@ def test_parser_with_table(
         mode=mode,
         extract_tables=extract_tables,
         images_to_text=images_to_text,
-        **params)
+        **params,
+    )
     _std_assert_with_parser(parser)

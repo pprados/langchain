@@ -346,12 +346,12 @@ class UnstructuredPDFParser(ImagesPdfParser):
             return html_table
         elif self.extract_tables == "markdown":
             try:
-                from html_to_markdown import convert_to_markdown
-                return convert_to_markdown(html_table)
+                from markdownify import markdownify as md
+                return md(html_table)
             except ImportError:
                 raise ImportError(
-                    "beautifulsoup package not found, please install it with "
-                    "`pip install beautifulsoup`"
+                    "markdownify package not found, please install it with "
+                    "`pip install markdownify`"
                 )
             pass
         elif self.extract_tables == "csv":

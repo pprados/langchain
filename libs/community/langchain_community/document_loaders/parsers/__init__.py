@@ -23,11 +23,11 @@ if TYPE_CHECKING:
     from langchain_community.document_loaders.parsers.pdf import (
         PDFMinerParser,
         PDFPlumberParser,
-        PyMuPDFParser,
+        PDFRouterParser,
         PyMuPDF4LLMParser,
+        PyMuPDFParser,
         PyPDFium2Parser,
         PyPDFParser,
-        PDFRouterParser,
     )
     from langchain_community.document_loaders.parsers.vsdx import (
         VsdxParser,

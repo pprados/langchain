@@ -6,7 +6,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import IO, Any, Callable, Iterator, List, Optional, Sequence, Union, Literal
+from typing import IO, Any, Callable, Iterator, List, Literal, Optional, Sequence, Union
 
 from langchain_core._api.deprecation import deprecated
 from langchain_core.documents import Document

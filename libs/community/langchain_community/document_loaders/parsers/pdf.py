@@ -1,4 +1,5 @@
 """Module contains common parsers for PDFs."""
+
 import base64
 import html
 import logging
@@ -10,13 +11,17 @@ from tempfile import TemporaryDirectory
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     Iterable,
     Iterator,
+    List,
+    Literal,
     Mapping,
     Optional,
     Sequence,
-    Union, List, Literal, Callable, )
+    Union,
+)
 from urllib.parse import urlparse
 
 import numpy as np
@@ -24,23 +29,24 @@ import pdfplumber
 import pymupdf
 import pypdf  # PPR
 import pypdfium2
-from PIL import Image
-from langchain_community.document_loaders.base import BaseBlobParser
-from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_core._api.deprecation import (
     deprecated,
 )
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
-from langchain_core.prompts import PromptTemplate, BasePromptTemplate
+from langchain_core.prompts import BasePromptTemplate, PromptTemplate
+from PIL import Image
+
+from langchain_community.document_loaders.base import BaseBlobParser
+from langchain_community.document_loaders.blob_loaders import Blob
 
 if TYPE_CHECKING:
-    import pymupdf.pymupdf
     import pdfplumber.page
-    from pdfplumber.utils import text, geometry  # import WordExctractor, TextMap
+    import pymupdf.pymupdf
     import pypdf._page
     import pypdfium2._helpers.page
+    from pdfplumber.utils import geometry, text  # import WordExctractor, TextMap
     from pypdf import PageObject
     from textractor.data.text_linearization_config import TextLinearizationConfig
 
@@ -85,8 +91,8 @@ def purge_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         if k in ["creationdate", "moddate"]:
             try:
                 new_metadata[k] = datetime.strptime(
-                    v.replace("'", ""),
-                    "D:%Y%m%d%H%M%S%z").isoformat("T")
+                    v.replace("'", ""), "D:%Y%m%d%H%M%S%z"
+                ).isoformat("T")
             except ValueError:
                 new_metadata[k] = v
         elif k in map_key:
@@ -104,13 +110,13 @@ def _merge_text_and_extras(extras: List[str], text_from_page):
         pos = text_from_page.rfind(sep)
         if pos == -1:
             sep = "\n"
-            pos = ([i for i, c in enumerate(text_from_page) if c == sep]
-                   [-2] if text_from_page.count(sep) >= 2
-                   else text_from_page.rfind(sep))
+            pos = (
+                [i for i, c in enumerate(text_from_page) if c == sep][-2]
+                if text_from_page.count(sep) >= 2
+                else text_from_page.rfind(sep)
+            )
         if pos != -1:
-            all_text = (text_from_page[:pos] +
-                        sep.join(extras) +
-                        text_from_page[pos:])
+            all_text = text_from_page[:pos] + sep.join(extras) + text_from_page[pos:]
         else:
             all_text = text_from_page + sep.join(extras)
     else:
@@ -118,10 +124,9 @@ def _merge_text_and_extras(extras: List[str], text_from_page):
     return all_text
 
 
-@deprecated(since="3.0.0",
-            alternative="Use Parser.images_to_text()")
+@deprecated(since="3.0.0", alternative="Use Parser.images_to_text()")
 def extract_from_images_with_rapidocr(
-        images: Sequence[Union[Iterable[np.ndarray], bytes]],
+    images: Sequence[Union[Iterable[np.ndarray], bytes]],
 ) -> str:
     """Extract text from images with RapidOCR.
 
@@ -152,24 +157,22 @@ def extract_from_images_with_rapidocr(
 
 
 # Type to change the function to convert images to text.
-CONVERT_IMAGE_TO_TEXT = Optional[Callable[
-    [Iterable[np.ndarray]], Iterator[str]]]
+CONVERT_IMAGE_TO_TEXT = Optional[Callable[[Iterable[np.ndarray]], Iterator[str]]]
 
 
 def convert_images_to_text_with_rapidocr(
-        # Default to text format to be compatible with previous versions.
-        *,
-        format: Literal["text", "markdown", "html"] = "text",
+    # Default to text format to be compatible with previous versions.
+    *,
+    format: Literal["text", "markdown", "html"] = "text",
 ) -> CONVERT_IMAGE_TO_TEXT:
     """
-        Return a function to convert images to text using RapidOCR.
-        Note: RapidOCR is compatible english and chinese languages.
-        Args:
-            format: Format of the output text. Either "text" or "markdown".
+    Return a function to convert images to text using RapidOCR.
+    Note: RapidOCR is compatible english and chinese languages.
+    Args:
+        format: Format of the output text. Either "text" or "markdown".
     """
 
-    def _convert_images_to_text(images: Iterable[np.ndarray]) -> \
-            Iterator[str]:
+    def _convert_images_to_text(images: Iterable[np.ndarray]) -> Iterator[str]:
         """Extract text from images.
         Can be overloaded to use another OCR algorithm, or to use
         a multimodal model to describe the images.
@@ -198,30 +201,29 @@ def convert_images_to_text_with_rapidocr(
             if result:
                 if format == "markdown":
                     result = result.replace("]", r"\\]")
-                    result = f'![{result}](.)'
+                    result = f"![{result}](.)"
                 elif format == "html":
                     result = f'<img alt="{html.escape(result, quote=True)}" />'
-            logger.debug(f"RapidOCR text: " + result.replace('\n', '\\n'))
+            logger.debug(f"RapidOCR text: " + result.replace("\n", "\\n"))
             yield result
 
     return _convert_images_to_text
 
 
 def convert_images_to_text_with_tesseract(
-        # Default to text format to be compatible with previous versions.
-        *,
-        format: Literal["text", "markdown", "html"] = "text",
-        langs: List[str] = ["eng"],
+    # Default to text format to be compatible with previous versions.
+    *,
+    format: Literal["text", "markdown", "html"] = "text",
+    langs: List[str] = ["eng"],
 ) -> CONVERT_IMAGE_TO_TEXT:
     """
-        Return a function to convert images to text using RapidOCR.
-        Note: RapidOCR is compatible english and chinese languages.
-        Args:
-            format: Format of the output text. Either "text" or "markdown".
+    Return a function to convert images to text using RapidOCR.
+    Note: RapidOCR is compatible english and chinese languages.
+    Args:
+        format: Format of the output text. Either "text" or "markdown".
     """
 
-    def _convert_images_to_text(images: Iterable[np.ndarray]) -> \
-            Iterator[str]:
+    def _convert_images_to_text(images: Iterable[np.ndarray]) -> Iterator[str]:
         """Extract text from images.
         Can be overloaded to use another OCR algorithm, or to use
         a multimodal model to describe the images.
@@ -244,17 +246,14 @@ def convert_images_to_text_with_tesseract(
             )
 
         for img in images:
-            result = pytesseract.image_to_string(
-                img,
-                lang="+".join(langs)
-            ).strip()
+            result = pytesseract.image_to_string(img, lang="+".join(langs)).strip()
             if result:
                 if format == "markdown":
                     result = result.replace("]", r"\\]")
-                    result = f'![{result}](.)'
+                    result = f"![{result}](.)"
                 elif format == "html":
                     result = f'<img alt="{html.escape(result, quote=True)}" />'
-            logger.debug(f"Tesseract text: " + result.replace('\n', '\\n'))
+            logger.debug(f"Tesseract text: " + result.replace("\n", "\\n"))
             yield result
 
     return _convert_images_to_text
@@ -269,10 +268,10 @@ _prompt_images_to_description = PromptTemplate.from_template(
 
 
 def convert_images_to_description(
-        model: BaseChatModel,
-        *,
-        prompt: BasePromptTemplate = _prompt_images_to_description,
-        format: Literal["text", "markdown", "html"] = "markdown",
+    model: BaseChatModel,
+    *,
+    prompt: BasePromptTemplate = _prompt_images_to_description,
+    format: Literal["text", "markdown", "html"] = "markdown",
 ) -> CONVERT_IMAGE_TO_TEXT:
     """
     Return a function to convert images to text using a multimodal model.
@@ -286,7 +285,7 @@ def convert_images_to_description(
     """
 
     def _convert_images_to_description(
-            images: Iterable[np.ndarray],
+        images: Iterable[np.ndarray],
     ) -> Iterator[str]:
         """Describe an image and extract text.
         Use a multimodal model to describe the images.
@@ -314,7 +313,8 @@ def convert_images_to_description(
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{img_base64}"},
+                                    "url": f"data:image/jpeg;base64,{img_base64}"
+                                },
                             },
                         ]
                     )
@@ -324,10 +324,10 @@ def convert_images_to_description(
             if result:
                 if format == "markdown":
                     result = result.replace("]", r"\\]")
-                    result = f'![{result}](.)'
+                    result = f"![{result}](.)"
                 elif format == "html":
                     result = f'<img alt="{html.escape(result, quote=True)}" />'
-            logger.debug(f"LLM description: " + result.replace('\n', '\\n'))
+            logger.debug(f"LLM description: " + result.replace("\n", "\\n"))
             yield result
 
     return _convert_images_to_description
@@ -336,10 +336,11 @@ def convert_images_to_description(
 class ImagesPdfParser(BaseBlobParser):
     """Abstract interface for blob parsers with OCR."""
 
-    def __init__(self,
-                 extract_images: bool,
-                 images_to_text: CONVERT_IMAGE_TO_TEXT,
-                 ):
+    def __init__(
+        self,
+        extract_images: bool,
+        images_to_text: CONVERT_IMAGE_TO_TEXT,
+    ):
         """Extract text from images.
 
         Args:
@@ -347,24 +348,24 @@ class ImagesPdfParser(BaseBlobParser):
             images_to_text: Function to extract text from images.
         """
         self.extract_images = extract_images
-        self.convert_image_to_text = (images_to_text
-                                      or convert_images_to_text_with_rapidocr())
+        self.convert_image_to_text = (
+            images_to_text or convert_images_to_text_with_rapidocr()
+        )
 
 
 class PyPDFParser(ImagesPdfParser):
     """Load `PDF` using `pypdf`"""
 
     def __init__(
-            self,
-            password: Optional[Union[str, bytes]] = None,
-            extract_images: bool = False,
-            *,  # Move on top ?
-            mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = _default_page_delimitor,
-            images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-            extraction_mode: Literal["plain", "layout"] = "plain",
-
-            extraction_kwargs: Optional[Dict[str, Any]] = None,
+        self,
+        password: Optional[Union[str, bytes]] = None,
+        extract_images: bool = False,
+        *,  # Move on top ?
+        mode: Literal["single", "paged"] = "paged",
+        pages_delimitor: str = _default_page_delimitor,
+        images_to_text: CONVERT_IMAGE_TO_TEXT = None,
+        extraction_mode: Literal["plain", "layout"] = "plain",
+        extraction_kwargs: Optional[Dict[str, Any]] = None,
     ):
         """Initialize a parser based on PyPDF.
 
@@ -405,36 +406,46 @@ class PyPDFParser(ImagesPdfParser):
             Extract text from image given the version of pypdf.
             """
 
-            def before(operator, operand_arguments,
-                       current_transformation_matrix, text_matrix):
+            def before(
+                operator, operand_arguments, current_transformation_matrix, text_matrix
+            ):
                 pass
 
-            def after(operator, operand_arguments,
-                      current_transformation_matrix, text_matrix):
+            def after(
+                operator, operand_arguments, current_transformation_matrix, text_matrix
+            ):
                 pass
 
-            def text(text, current_transformation_matrix,
-                     text_matrix, font_dictionary, font_size):
+            def text(
+                text,
+                current_transformation_matrix,
+                text_matrix,
+                font_dictionary,
+                font_size,
+            ):
                 pass
 
             if pypdf.__version__.startswith("3"):
                 return page.extract_text()
             else:
                 return page.extract_text(
-                    extraction_mode=self.extraction_mode, **self.extraction_kwargs,
+                    extraction_mode=self.extraction_mode,
+                    **self.extraction_kwargs,
                     visitor_operand_before=before,
                     visitor_operand_after=after,
                     visitor_text=text,
                 )
 
-        with (blob.as_bytes_io() as pdf_file_obj):  # type: ignore[attr-defined]
+        with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
             pdf_reader = pypdf.PdfReader(pdf_file_obj, password=self.password)
 
             doc_metadata = purge_metadata(
-                pdf_reader.metadata | {
+                pdf_reader.metadata
+                | {
                     "source": blob.source,
                     "total_pages": len(pdf_reader.pages),
-                })
+                }
+            )
             single_texts = []
             for page_number, page in enumerate(pdf_reader.pages):
                 text_from_page = _extract_text_from_page(page=page)
@@ -450,7 +461,7 @@ class PyPDFParser(ImagesPdfParser):
             if self.mode == "single":
                 yield Document(
                     page_content=self.pages_delimitor.join(single_texts),
-                    metadata=doc_metadata
+                    metadata=doc_metadata,
                 )
 
     def extract_images_from_page(self, page: pypdf._page.PageObject) -> str:
@@ -472,35 +483,37 @@ class PyPDFParser(ImagesPdfParser):
                     )
                 elif xObject[obj]["/Filter"][1:] in _PDF_FILTER_WITH_LOSS:
                     images.append(
-                        np.array(Image.open(io.BytesIO(xObject[obj].get_data()))))
+                        np.array(Image.open(io.BytesIO(xObject[obj].get_data())))
+                    )
 
                 else:
                     warnings.warn("Unknown PDF Filter!")
         return _format_image_str.format(
             image_text=_join_images.join(
-                [text for text in self.convert_image_to_text(images)])
+                [text for text in self.convert_image_to_text(images)]
+            )
         )
 
 
 from pdfminer.converter import *
+from pdfminer.layout import *
 from pdfminer.pdfinterp import PDFPageInterpreter, PDFResourceManager
 from pdfminer.pdfpage import PDFPage
-from pdfminer.layout import *
 
 
 class PDFMinerParser(ImagesPdfParser):
     """Parse `PDF` using `PDFMiner`."""
 
-    def __init__(self,
-                 extract_images: bool = False,
-                 *,
-                 password: Optional[str] = None,
-                 mode: Literal["single", "paged"] = "single",
-                 pages_delimitor: str = _default_page_delimitor,
-                 images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-
-                 concatenate_pages: Optional[bool] = None,
-                 ):
+    def __init__(
+        self,
+        extract_images: bool = False,
+        *,
+        password: Optional[str] = None,
+        mode: Literal["single", "paged"] = "single",
+        pages_delimitor: str = _default_page_delimitor,
+        images_to_text: CONVERT_IMAGE_TO_TEXT = None,
+        concatenate_pages: Optional[bool] = None,
+    ):
         """Initialize a parser based on PDFMiner.
 
         Args:
@@ -528,8 +541,10 @@ class PDFMinerParser(ImagesPdfParser):
         self.images_to_text = images_to_text
         self.pages_delimitor = pages_delimitor
         if extract_images:
-            logger.warning("To replicate a bug from the previous version, "
-                           "force the mode to 'paged'")  # PPR
+            logger.warning(
+                "To replicate a bug from the previous version, "
+                "force the mode to 'paged'"
+            )  # PPR
             self.mode = "paged"
 
         if concatenate_pages is not None:
@@ -539,9 +554,7 @@ class PDFMinerParser(ImagesPdfParser):
             )
             mode = "single" if concatenate_pages else "paged"
             if mode != self.mode:
-                warnings.warn(
-                    f"Overriding `concatenate_pages` to "
-                    f"`mode='{mode}'`")
+                warnings.warn(f"Overriding `concatenate_pages` to " f"`mode='{mode}'`")
 
     @staticmethod
     def decode_text(s: Union[bytes, str]) -> str:
@@ -580,12 +593,13 @@ class PDFMinerParser(ImagesPdfParser):
         return obj
 
     def _get_metadata(
-            self,
-            fp: BinaryIO,
-            password: str = "",
-            caching: bool = True,
+        self,
+        fp: BinaryIO,
+        password: str = "",
+        caching: bool = True,
     ) -> Dict[str, Any]:
-        from pdfminer.pdfpage import PDFPage, PDFParser, PDFDocument
+        from pdfminer.pdfpage import PDFDocument, PDFPage, PDFParser
+
         # Create a PDF parser object associated with the file object.
         parser = PDFParser(fp)
         # Create a PDF document object that stores the document structure.
@@ -613,23 +627,23 @@ class PDFMinerParser(ImagesPdfParser):
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
         """Lazily parse the blob."""
         import io
+
         with blob.as_bytes_io() as pdf_file_obj, TemporaryDirectory() as tempdir:
             pages = PDFPage.get_pages(pdf_file_obj, password=self.password)
             rsrcmgr = PDFResourceManager()
             doc_metadata = purge_metadata(
-                self._get_metadata(pdf_file_obj, password=self.password))
+                self._get_metadata(pdf_file_obj, password=self.password)
+            )
             doc_metadata["source"] = blob.source
 
             class Visitor(PDFLayoutAnalyzer):
                 def __init__(
-                        self,
-                        rsrcmgr: PDFResourceManager,
-                        pageno: int = 1,
-                        laparams: Optional[LAParams] = None,
+                    self,
+                    rsrcmgr: PDFResourceManager,
+                    pageno: int = 1,
+                    laparams: Optional[LAParams] = None,
                 ) -> None:
-                    super().__init__(rsrcmgr,
-                                     pageno=pageno,
-                                     laparams=laparams)
+                    super().__init__(rsrcmgr, pageno=pageno, laparams=laparams)
 
                 def receive_layout(me, ltpage: LTPage) -> None:
                     def render(item: LTItem) -> None:
@@ -642,13 +656,14 @@ class PDFMinerParser(ImagesPdfParser):
                         elif isinstance(item, LTImage):
                             if self.extract_images and self.images_to_text:
                                 from pdfminer.image import ImageWriter
+
                                 image_writer = ImageWriter(tempdir)
                                 filename = image_writer.export_image(item)
                                 img = np.array(Image.open(Path(tempdir) / filename))
                                 image_text = next(self.images_to_text([img]))
                                 if image_text:
-                                    text_io.write(_format_image_str.format(
-                                        image_text=image_text)
+                                    text_io.write(
+                                        _format_image_str.format(image_text=image_text)
                                     )
                         elif isinstance(item, LTContainer):
                             for child in item:
@@ -657,8 +672,9 @@ class PDFMinerParser(ImagesPdfParser):
                     render(ltpage)
 
             text_io = io.StringIO()
-            visitor_for_all = PDFPageInterpreter(rsrcmgr,
-                                                 Visitor(rsrcmgr, laparams=LAParams()))
+            visitor_for_all = PDFPageInterpreter(
+                rsrcmgr, Visitor(rsrcmgr, laparams=LAParams())
+            )
             all_content = []
             for i, page in enumerate(pages):
                 text_io.truncate(0)
@@ -669,14 +685,16 @@ class PDFMinerParser(ImagesPdfParser):
                 if self.mode == "paged":
                     text_io.truncate(0)
                     text_io.seek(0)
-                    yield Document(page_content=content,
-                                   metadata=doc_metadata | {"page": i})
+                    yield Document(
+                        page_content=content, metadata=doc_metadata | {"page": i}
+                    )
                 else:
                     all_content.append(content)
             if self.mode == "single":
                 yield Document(
                     page_content=self.pages_delimitor.join(all_content),
-                    metadata=doc_metadata)
+                    metadata=doc_metadata,
+                )
 
 
 class PyMuPDFParser(ImagesPdfParser):
@@ -687,10 +705,11 @@ class PyMuPDFParser(ImagesPdfParser):
     _lock = threading.Lock()
 
     from pymupdf.table import (
-        DEFAULT_SNAP_TOLERANCE,
         DEFAULT_JOIN_TOLERANCE,
+        DEFAULT_MIN_WORDS_HORIZONTAL,
         DEFAULT_MIN_WORDS_VERTICAL,
-        DEFAULT_MIN_WORDS_HORIZONTAL)
+        DEFAULT_SNAP_TOLERANCE,
+    )
 
     _default_extract_tables_settings = {
         "clip": None,
@@ -715,25 +734,21 @@ class PyMuPDFParser(ImagesPdfParser):
         "text_y_tolerance": 3,
         "strategy": None,  # offer abbreviation
         "add_lines": None,  # optional user-specified lines
-
     }
 
     def __init__(
-            self,
-            *,
-            password: Optional[str] = None,
-            mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = _default_page_delimitor,
-            extract_images: bool = False,
-            images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-            extract_tables: Union[
-                Literal["csv"],
-                Literal["markdown"],
-                Literal["html"],
-                None] = None,
-
-            extract_tables_settings: Optional[Dict[str, Any]] = None,
-            text_kwargs: Optional[Mapping[str, Any]] = None,
+        self,
+        *,
+        password: Optional[str] = None,
+        mode: Literal["single", "paged"] = "paged",
+        pages_delimitor: str = _default_page_delimitor,
+        extract_images: bool = False,
+        images_to_text: CONVERT_IMAGE_TO_TEXT = None,
+        extract_tables: Union[
+            Literal["csv"], Literal["markdown"], Literal["html"], None
+        ] = None,
+        extract_tables_settings: Optional[Dict[str, Any]] = None,
+        text_kwargs: Optional[Mapping[str, Any]] = None,
     ) -> None:
         """Initialize the parser.
 
@@ -756,7 +771,7 @@ class PyMuPDFParser(ImagesPdfParser):
         super().__init__(extract_images, images_to_text)
         if mode not in ["single", "paged"]:
             raise ValueError("mode must be single or paged")
-        if extract_tables and extract_tables not in ["markdown", "html"]:
+        if extract_tables and extract_tables not in ["markdown", "html", "csv"]:
             raise ValueError("mode must be markdown")
 
         self.mode = mode
@@ -766,8 +781,8 @@ class PyMuPDFParser(ImagesPdfParser):
         self.extract_images = extract_images
         self.extract_tables = extract_tables
         self.extract_tables_settings = (
-                extract_tables_settings or
-                PyMuPDFParser._default_extract_tables_settings)
+            extract_tables_settings or PyMuPDFParser._default_extract_tables_settings
+        )
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
         """Lazily parse the blob."""
@@ -789,8 +804,7 @@ class PyMuPDFParser(ImagesPdfParser):
                     if self.mode == "paged":
                         yield Document(
                             page_content=all_text,
-                            metadata=(doc_metadata |
-                                      {"page": page.number}),
+                            metadata=(doc_metadata | {"page": page.number}),
                         )
                     else:
                         full_content.append(all_text)
@@ -798,11 +812,11 @@ class PyMuPDFParser(ImagesPdfParser):
                 if self.mode == "single":
                     yield Document(
                         page_content=self.pages_delimitor.join(full_content),
-                        metadata=doc_metadata
+                        metadata=doc_metadata,
                     )
 
     def _get_page_content(
-            self, doc: pymupdf.pymupdf.Document, page: pymupdf.pymupdf.Page, blob: Blob
+        self, doc: pymupdf.pymupdf.Document, page: pymupdf.pymupdf.Page, blob: Blob
     ) -> str:
         """
         Get the text of the page using PyMuPDF and RapidOCR and issue a warning
@@ -812,8 +826,8 @@ class PyMuPDFParser(ImagesPdfParser):
         images_from_page = self._extract_images_from_page(doc, page)
         tables_from_page = self._extract_tables_from_page(page)
         all_text = _merge_text_and_extras(
-            [images_from_page, tables_from_page],
-            text_from_page)
+            [images_from_page, tables_from_page], text_from_page
+        )
 
         if not all_text:
             warnings.warn(
@@ -823,25 +837,25 @@ class PyMuPDFParser(ImagesPdfParser):
 
         return all_text
 
-    def _extract_metadata(
-            self, doc: pymupdf.pymupdf.Document, blob: Blob
-    ) -> dict:
+    def _extract_metadata(self, doc: pymupdf.pymupdf.Document, blob: Blob) -> dict:
         """Extract metadata from the document and page."""
-        return purge_metadata(dict(
-            {
-                "source": blob.source,  # type: ignore[attr-defined]
-                "file_path": blob.source,  # type: ignore[attr-defined]
-                "total_pages": len(doc),
-            },
-            **{
-                k: doc.metadata[k]
-                for k in doc.metadata
-                if isinstance(doc.metadata[k], (str, int))
-            },
-        ))
+        return purge_metadata(
+            dict(
+                {
+                    "source": blob.source,  # type: ignore[attr-defined]
+                    "file_path": blob.source,  # type: ignore[attr-defined]
+                    "total_pages": len(doc),
+                },
+                **{
+                    k: doc.metadata[k]
+                    for k in doc.metadata
+                    if isinstance(doc.metadata[k], (str, int))
+                },
+            )
+        )
 
     def _extract_images_from_page(
-            self, doc: pymupdf.pymupdf.Document, page: pymupdf.pymupdf.Page
+        self, doc: pymupdf.pymupdf.Document, page: pymupdf.pymupdf.Page
     ) -> str:
         """Extract images from page and get the text with RapidOCR."""
         if not self.extract_images:
@@ -860,39 +874,53 @@ class PyMuPDFParser(ImagesPdfParser):
             )
             _format_image_str.format(
                 image_text=_join_images.join(
-                    [text for text in self.convert_image_to_text(images)])
+                    [text for text in self.convert_image_to_text(images)]
+                )
             )
 
         return _format_image_str.format(
             image_text=_join_images.join(
-                [text for text in self.convert_image_to_text(images)])
+                [text for text in self.convert_image_to_text(images)]
+            )
         )
 
-    def _extract_tables_from_page(
-            self, page: pymupdf.pymupdf.Page
-    ) -> str:
+    def _extract_tables_from_page(self, page: pymupdf.pymupdf.Page) -> str:
         """Extract images from page and get the text with RapidOCR."""
         if self.extract_tables is None:
             return ""
         import pymupdf  # PPR FIXME nécessaire ?
 
         tables_list = list(
-            pymupdf.table.find_tables(page, **self.extract_tables_settings))
+            pymupdf.table.find_tables(page, **self.extract_tables_settings)
+        )
         if tables_list:
             if self.extract_tables == "markdown":
-                return _join_tables.join(
-                    [table.to_markdown() for table in tables_list])
+                return _join_tables.join([table.to_markdown() for table in tables_list])
             elif self.extract_tables == "html":
-                return _join_tables.join([table.to_pandas().to_html(
-                    header=False, index=False, bold_rows=False,
-                ) for table in tables_list])
+                return _join_tables.join(
+                    [
+                        table.to_pandas().to_html(
+                            header=False,
+                            index=False,
+                            bold_rows=False,
+                        )
+                        for table in tables_list
+                    ]
+                )
             elif self.extract_tables == "csv":
-                return _join_tables.join([table.to_pandas().to_csv(
-                    header=False, index=False, bold_rows=False,
-                ) for table in tables_list])
+                return _join_tables.join(
+                    [
+                        table.to_pandas().to_csv(
+                            header=False,
+                            index=False,
+                        )
+                        for table in tables_list
+                    ]
+                )
             else:
                 raise ValueError(
-                    f"extract_tables {self.extract_tables} not implemented")
+                    f"extract_tables {self.extract_tables} not implemented"
+                )
         return ""
 
 
@@ -903,15 +931,15 @@ class PyPDFium2Parser(ImagesPdfParser):
     # See https://pypdfium2.readthedocs.io/en/stable/python_api.html#thread-incompatibility
     _lock = threading.Lock()
 
-    def __init__(self,
-                 extract_images: bool = False,
-                 *,
-                 password: Optional[str] = None,
-                 mode: Literal["single", "paged"] = "paged",
-                 pages_delimitor: str = _default_page_delimitor,
-                 images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-
-                 ) -> None:
+    def __init__(
+        self,
+        extract_images: bool = False,
+        *,
+        password: Optional[str] = None,
+        mode: Literal["single", "paged"] = "paged",
+        pages_delimitor: str = _default_page_delimitor,
+        images_to_text: CONVERT_IMAGE_TO_TEXT = None,
+    ) -> None:
         """Initialize a parser based on PyPDFium2.
 
         Args:
@@ -943,9 +971,9 @@ class PyPDFium2Parser(ImagesPdfParser):
         # if done incorrectly creates seg faults.
         with PyPDFium2Parser._lock:  # TODO: images
             with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
-                pdf_reader = pypdfium2.PdfDocument(file_path,
-                                                   password=self.password,
-                                                   autoclose=True)
+                pdf_reader = pypdfium2.PdfDocument(
+                    file_path, password=self.password, autoclose=True
+                )
                 full_content = []
 
                 doc_metadata = purge_metadata(pdf_reader.get_metadata_dict())
@@ -956,26 +984,33 @@ class PyPDFium2Parser(ImagesPdfParser):
                     for page_number, page in enumerate(pdf_reader):
                         text_page = page.get_textpage()
                         text_from_page = "\n".join(
-                            text_page.get_text_range().splitlines())  # Replace \r\n
+                            text_page.get_text_range().splitlines()
+                        )  # Replace \r\n
                         text_page.close()
                         image_from_page = self._extract_images_from_page(page)
-                        all_text = _merge_text_and_extras([image_from_page],
-                                                          text_from_page)
+                        all_text = _merge_text_and_extras(
+                            [image_from_page], text_from_page
+                        )
                         page.close()
 
                         if self.mode == "paged":
-                            yield Document(page_content=all_text,
-                                           metadata={**doc_metadata,
-                                                     **{
-                                                         "page": page_number,
-                                                     }})
+                            yield Document(
+                                page_content=all_text,
+                                metadata={
+                                    **doc_metadata,
+                                    **{
+                                        "page": page_number,
+                                    },
+                                },
+                            )
                         else:
                             full_content.append(all_text)
 
                     if self.mode == "single":
                         yield Document(
                             page_content=self.pages_delimitor.join(full_content),
-                            metadata=doc_metadata)
+                            metadata=doc_metadata,
+                        )
                 finally:
                     pdf_reader.close()
 
@@ -991,7 +1026,8 @@ class PyPDFium2Parser(ImagesPdfParser):
         images = list(map(lambda x: x.get_bitmap().to_numpy(), images))
         return _format_image_str.format(
             image_text=_join_images.join(
-                [text for text in self.convert_image_to_text(images)])
+                [text for text in self.convert_image_to_text(images)]
+            )
         )
 
 
@@ -999,18 +1035,17 @@ class PDFPlumberParser(ImagesPdfParser):
     """Parse `PDF` with `PDFPlumber`."""
 
     def __init__(
-            self,
-            text_kwargs: Optional[Mapping[str, Any]] = None,
-            dedupe: bool = False,
-            extract_images: bool = False,
-            *,
-            password: Optional[str] = None,
-            mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = _default_page_delimitor,
-            images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-            extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
-            extract_tables_settings: Optional[Dict[str, Any]] = None,
-
+        self,
+        text_kwargs: Optional[Mapping[str, Any]] = None,
+        dedupe: bool = False,
+        extract_images: bool = False,
+        *,
+        password: Optional[str] = None,
+        mode: Literal["single", "paged"] = "paged",
+        pages_delimitor: str = _default_page_delimitor,
+        images_to_text: CONVERT_IMAGE_TO_TEXT = None,
+        extract_tables: Optional[Literal["csv", "markdown", "html"]] = None,
+        extract_tables_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initialize the parser.
 
@@ -1054,33 +1089,39 @@ class PDFPlumberParser(ImagesPdfParser):
         import pdfplumber
 
         with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
-            doc = pdfplumber.open(file_path,
-                                  password=self.password)  # open document
+            doc = pdfplumber.open(file_path, password=self.password)  # open document
             # TODO: avec ou sans tables
             from pdfplumber.utils import geometry  # import WordExctractor, TextMap
+
             contents = []
             tables_as_html = []
             images = []
-            doc_metadata = purge_metadata((doc.metadata |
-                                           {
-                                               "source": blob.source,
-                                               # type: ignore[attr-defined]
-                                               "file_path": blob.source,
-                                               # type: ignore[attr-defined]
-                                               "total_pages": len(doc.pages),
-                                           }))
+            doc_metadata = purge_metadata(
+                (
+                    doc.metadata
+                    | {
+                        "source": blob.source,
+                        # type: ignore[attr-defined]
+                        "file_path": blob.source,
+                        # type: ignore[attr-defined]
+                        "total_pages": len(doc.pages),
+                    }
+                )
+            )
             for page in doc.pages:
-                tables_bbox: List[Tuple[
-                    float, float, float, float]] = self._extract_tables_bbox_from_page(
-                    page)
+                tables_bbox: List[Tuple[float, float, float, float]] = (
+                    self._extract_tables_bbox_from_page(page)
+                )
                 tables_content = self._extract_tables_from_page(page)
                 images_bbox = [geometry.obj_to_bbox(image) for image in page.images]
                 image_from_page = self._extract_images_from_page(page)
                 page_text = []
                 for content in self._split_page_content(
-                        page,
-                        tables_bbox, tables_content,
-                        images_bbox, image_from_page,
+                    page,
+                    tables_bbox,
+                    tables_content,
+                    images_bbox,
+                    image_from_page,
                 ):
                     if isinstance(content, str):  # Text
                         page_text.append(content)
@@ -1088,17 +1129,20 @@ class PDFPlumberParser(ImagesPdfParser):
                         page_text.append(_join_tables + self._convert_table(content))
                     else:  # Image
                         page_text.append(
-                            _join_images + next(self.convert_image_to_text([images])))
+                            _join_images + next(self.convert_image_to_text([images]))
+                        )
 
                 all_text = "".join(page_text)
 
                 if self.mode == "paged":
                     yield Document(
                         page_content=all_text,
-                        metadata=(doc_metadata |
-                                  {
-                                      "page": page.page_number - 1,
-                                  }),
+                        metadata=(
+                            doc_metadata
+                            | {
+                                "page": page.page_number - 1,
+                            }
+                        ),
                     )
                 else:
                     contents.append(all_text)
@@ -1123,16 +1167,16 @@ class PDFPlumberParser(ImagesPdfParser):
         return page.extract_text(**self.text_kwargs)
 
     def _split_page_content(
-            self,
-            page: pdfplumber.page.Page,
-            tables_bbox: List[Tuple[float, float, float, float]],
-            tables_content: List[str],
-            images_bbox: List[Tuple[float, float, float, float]],
-            images_content: List[np.ndarray],
-            **kwargs: Any,
+        self,
+        page: pdfplumber.page.Page,
+        tables_bbox: List[Tuple[float, float, float, float]],
+        tables_content: List[str],
+        images_bbox: List[Tuple[float, float, float, float]],
+        images_content: List[np.ndarray],
+        **kwargs: Any,
     ) -> List[Union[str, List[List[str]], np.ndarray]]:
         """Process the page content based on dedupe."""
-        from pdfplumber.utils import text, geometry  # import WordExctractor, TextMap
+        from pdfplumber.utils import geometry, text  # import WordExctractor, TextMap
 
         # Iterate over words. If a word is in a table,
         # yield the accumulated text, and the table
@@ -1143,8 +1187,8 @@ class PDFPlumberParser(ImagesPdfParser):
                 "keep_blank_chars": True,
                 # "use_text_flow": True,
                 # "presorted": True,
-                "layout_bbox": kwargs.get(
-                    "layout_bbox") or geometry.objects_to_bbox(page.chars),
+                "layout_bbox": kwargs.get("layout_bbox")
+                or geometry.objects_to_bbox(page.chars),
             }
         )
 
@@ -1155,7 +1199,7 @@ class PDFPlumberParser(ImagesPdfParser):
         wordmap = extractor.extract_wordmap(chars)
         extract_wordmaps = []
         used_arrays = [False] * len(tables_bbox)
-        for (word, o) in wordmap.tuples:
+        for word, o in wordmap.tuples:
             # print(f"  Try with '{word['text']}' ...")
             is_table = False
             word_bbox = geometry.obj_to_bbox(word)
@@ -1170,8 +1214,11 @@ class PDFPlumberParser(ImagesPdfParser):
                         if extract_wordmaps:
                             new_wordmap = text.WordMap(tuples=extract_wordmaps)
                             new_textmap = new_wordmap.to_textmap(
-                                **{k: kwargs[k] for k in text.TEXTMAP_KWARGS if
-                                   k in kwargs}
+                                **{
+                                    k: kwargs[k]
+                                    for k in text.TEXTMAP_KWARGS
+                                    if k in kwargs
+                                }
                             )
                             # print(f"yield {new_textmap.to_string()}")
                             yield new_textmap.to_string()
@@ -1199,9 +1246,7 @@ class PDFPlumberParser(ImagesPdfParser):
         for content in images_content:
             yield content
 
-    def _extract_images_from_page(
-            self,
-            page: pdfplumber.page.Page) -> List[np.ndarray]:
+    def _extract_images_from_page(self, page: pdfplumber.page.Page) -> List[np.ndarray]:
         """Extract images from page and get the text with RapidOCR."""
         if not self.extract_images:
             return ""
@@ -1210,36 +1255,34 @@ class PDFPlumberParser(ImagesPdfParser):
         for img in page.images:
             if img["stream"]["Filter"].name in _PDF_FILTER_WITHOUT_LOSS:
                 images.append(
-                    np.frombuffer(
-                        img["stream"].get_data(),
-                        dtype=np.uint8).reshape(
+                    np.frombuffer(img["stream"].get_data(), dtype=np.uint8).reshape(
                         img["stream"]["Height"], img["stream"]["Width"], -1
                     )
                 )
             elif img["stream"]["Filter"].name in _PDF_FILTER_WITH_LOSS:
-                buf = np.frombuffer(
-                    img["stream"].get_data(),
-                    dtype=np.uint8)
+                buf = np.frombuffer(img["stream"].get_data(), dtype=np.uint8)
                 images.append(np.array(Image.open(io.BytesIO(buf))))
             else:
                 warnings.warn("Unknown PDF Filter!")
 
         return images
 
-    def _extract_tables_bbox_from_page(self,
-                                       page: pdfplumber.page.Page,
-                                       ) -> List["PDFPlumberTable"]:
-
+    def _extract_tables_bbox_from_page(
+        self,
+        page: pdfplumber.page.Page,
+    ) -> List["PDFPlumberTable"]:
         if not self.extract_tables:
             return []
         from pdfplumber.table import TableSettings
+
         table_settings = self.extract_tables_settings
         tset = TableSettings.resolve(table_settings)
         return [table.bbox for table in page.find_tables(tset)]
 
-    def _extract_tables_from_page(self,
-                                  page: pdfplumber.page.Page,
-                                  ) -> List["PDFPlumberTable"]:
+    def _extract_tables_from_page(
+        self,
+        page: pdfplumber.page.Page,
+    ) -> List["PDFPlumberTable"]:
         if not self.extract_tables:
             return []
         table_settings = self.extract_tables_settings
@@ -1261,11 +1304,11 @@ class PDFPlumberParser(ImagesPdfParser):
 
     def _convert_table_to_csv(self, table: List[List[str]]) -> str:
         """Output table content as a string in Github-markdown format."""
-        clean = True
+
         if not table:
             return ""
-        col_count = len(table[0])
-        output = ""
+
+        output = ["\n\n"]
 
         # skip first row in details if header is part of the table
         # j = 0 if self.header.external else 1
@@ -1277,9 +1320,8 @@ class PDFPlumberParser(ImagesPdfParser):
                 # output None cells with empty string
                 cell = "" if cell is None else cell.replace("\n", " ")
                 line += cell + ","
-            line += "\n"
-            output += line
-        return output + "\n"
+            output.append(line)
+        return "\n".join(output) + "\n\n"
 
     def _convert_table_to_html(self, table: List[List[str]]) -> str:
         """Output table content as a string in HTML format.
@@ -1378,11 +1420,11 @@ class AmazonTextractPDFParser(BaseBlobParser):
     """
 
     def __init__(
-            self,
-            textract_features: Optional[Sequence[int]] = None,
-            client: Optional[Any] = None,
-            *,
-            linearization_config: Optional["TextLinearizationConfig"] = None,
+        self,
+        textract_features: Optional[Sequence[int]] = None,
+        client: Optional[Any] = None,
+        *,
+        linearization_config: Optional["TextLinearizationConfig"] = None,
     ) -> None:
         """Initializes the parser.
 
@@ -1447,13 +1489,12 @@ class AmazonTextractPDFParser(BaseBlobParser):
         the blob.data is taken
         """
 
-        url_parse_result = urlparse(
-            str(blob.path)) if blob.path else None  # type: ignore[attr-defined]
+        url_parse_result = urlparse(str(blob.path)) if blob.path else None  # type: ignore[attr-defined]
         # Either call with S3 path (multi-page) or with bytes (single-page)
         if (
-                url_parse_result
-                and url_parse_result.scheme == "s3"
-                and url_parse_result.netloc
+            url_parse_result
+            and url_parse_result.scheme == "s3"
+            and url_parse_result.netloc
         ):
             textract_response_json = self.tc.call_textract(
                 input_document=str(blob.path),  # type: ignore[attr-defined]
@@ -1494,8 +1535,7 @@ class DocumentIntelligenceParser(BaseBlobParser):
         self.client = client
         self.model = model
 
-    def _generate_docs(self, blob: Blob, result: Any) -> Iterator[
-        Document]:  # type: ignore[valid-type]
+    def _generate_docs(self, blob: Blob, result: Any) -> Iterator[Document]:  # type: ignore[valid-type]
         for p in result.pages:
             content = " ".join([line.content for line in p.lines])
 
@@ -1525,12 +1565,12 @@ class PyMuPDF4LLMParser(ImagesPdfParser):
     """Parse `PDF` using `PyMuPDF`."""
 
     def __init__(
-            self,
-            *,
-            password: Optional[str] = None,
-            mode: Literal["single", "paged"] = "paged",
-            pages_delimitor: str = _default_page_delimitor,
-            to_markdown_kwargs: Optional[Mapping[str, Any]] = None,
+        self,
+        *,
+        password: Optional[str] = None,
+        mode: Literal["single", "paged"] = "paged",
+        pages_delimitor: str = _default_page_delimitor,
+        to_markdown_kwargs: Optional[Mapping[str, Any]] = None,
     ) -> None:
         """Initialize the parser.
 
@@ -1569,25 +1609,20 @@ class PyMuPDF4LLMParser(ImagesPdfParser):
         with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
             if blob.data is None:  # type: ignore[attr-defined]
                 for mu_doc in pymupdf4llm.to_markdown(
-                        file_path,
-                        **self.to_markdown_kwargs,
+                    file_path,
+                    **self.to_markdown_kwargs,
                 ):
                     yield Document(
-                        page_content=mu_doc['text'],
-                        metadata=purge_metadata(mu_doc['metadata'])
+                        page_content=mu_doc["text"],
+                        metadata=purge_metadata(mu_doc["metadata"]),
                     )
                     # PPR TODO: extraire les images. Voir PyMuPDFParser
                     # PPR TODO: extraire les tableaux ? Voir PyMuPDFParser
             else:
                 raise NotImplementedError("stream not implemented")
 
-    _map_key = {
-        "page_count": "total_pages",
-        "file_path": "source"
-    }
-    _date_key = [
-        "creationdate", "moddate"
-    ]
+    _map_key = {"page_count": "total_pages", "file_path": "source"}
+    _date_key = ["creationdate", "moddate"]
 
 
 class PDFRouterParser(BaseBlobParser):
@@ -1619,15 +1654,17 @@ class PDFRouterParser(BaseBlobParser):
     # {"metadata":r"regex"},
     # doc_regex = r"regex"
     def __init__(
-            self,
-            routes: List[
-                Tuple[
-                    Optional[Union[re, str]],
-                    Optional[Union[re, str]],
-                    Optional[Union[re, str]],
-                    BaseBlobParser]],
-            *,
-            password: Optional[str] = None,
+        self,
+        routes: List[
+            Tuple[
+                Optional[Union[re, str]],
+                Optional[Union[re, str]],
+                Optional[Union[re, str]],
+                BaseBlobParser,
+            ]
+        ],
+        *,
+        password: Optional[str] = None,
     ):
         """Initialize with a file path."""
         try:
@@ -1654,18 +1691,16 @@ class PDFRouterParser(BaseBlobParser):
         from pypdf import PdfReader
 
         with blob.as_bytes_io() as pdf_file_obj:  # type: ignore[attr-defined]
-
-            with PdfReader(pdf_file_obj,
-                           password=self.password) as reader:
+            with PdfReader(pdf_file_obj, password=self.password) as reader:
                 if reader.metadata:
-                    producer, creator = reader.metadata.producer, reader.metadata.creator
+                    producer, creator = (
+                        reader.metadata.producer,
+                        reader.metadata.creator,
+                    )
                     page1 = reader.pages[0].extract_text()
                 for re_producer, re_create, re_page, parser in self.routes:
-                    is_producer = (not re_producer
-                                   or re_producer.search(producer))
-                    is_creator = (not re_create
-                                  or re_create.search(creator))
-                    is_page = (not re_page
-                               or re_page.search(page1))
+                    is_producer = not re_producer or re_producer.search(producer)
+                    is_creator = not re_create or re_create.search(creator)
+                    is_page = not re_page or re_page.search(page1)
                     if is_producer and is_creator and is_page:
                         yield from parser.lazy_parse(blob)

@@ -8,9 +8,11 @@ from langchain_community.document_loaders import (
     MathpixPDFLoader,
     PDFMinerLoader,
     PDFMinerPDFasHTMLLoader,
+    PDFPlumberLoader,
+    PyMuPDF4LLMLoader,
     PyMuPDFLoader,
     PyPDFium2Loader,
-    UnstructuredPDFLoader, PDFPlumberLoader, PyMuPDF4LLMLoader,
+    UnstructuredPDFLoader,
 )
 
 
@@ -58,42 +60,49 @@ def test_pdfplumber_loader() -> None:
 
     # Verify that extraction_mode parameter works
     file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
-    loader = PDFPlumberLoader(str(file_path),
-                            extraction_mode="plain",
-                            extract_tables="markdown",
-                            extract_images=False,
-                            )
+    loader = PDFPlumberLoader(
+        str(file_path),
+        extraction_mode="plain",
+        extract_tables="markdown",
+        extract_images=False,
+    )
     docs = loader.load()
     assert len(docs) == 1
     assert len(docs[0].metadata) == 15
 
     file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
-    loader = PDFPlumberLoader(str(file_path),
-                            extraction_mode="page",
-                            extract_tables="html",
-                            extract_images=False,
-                            )
+    loader = PDFPlumberLoader(
+        str(file_path),
+        extraction_mode="page",
+        extract_tables="html",
+        extract_images=False,
+    )
     docs = loader.load()
     assert len(docs) == 16
     assert len(docs[0].metadata) == 16
 
     file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
-    loader = PDFPlumberLoader(str(file_path),
-                            extraction_mode="layout",
-                            extract_tables="csv",
-                            extract_images=False,
-                            )
+    loader = PDFPlumberLoader(
+        str(file_path),
+        extraction_mode="layout",
+        extract_tables="csv",
+        extract_images=False,
+    )
     docs = loader.load()
     assert len(docs) == 24
     assert len(docs[0].metadata) == 15
 
-    loader = PDFPlumberLoader(str(file_path),
-                            extract_tables="markdown",
-                            extract_images=False,
-                            )
+    loader = PDFPlumberLoader(
+        str(file_path),
+        extract_tables="markdown",
+        extract_images=False,
+    )
     from langchain_text_splitters import CharacterTextSplitter
+
     text_splitter = CharacterTextSplitter.from_tiktoken_encoder(
-        encoding_name="cl100k_base", chunk_size=1000, chunk_overlap=0,
+        encoding_name="cl100k_base",
+        chunk_size=1000,
+        chunk_overlap=0,
         separator="\n",
     )
     docs = loader.load_and_split(text_splitter)
@@ -102,11 +111,12 @@ def test_pdfplumber_loader() -> None:
 
     # Verify that extract_tables and extract_images
     file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
-    loader = PDFPlumberLoader(str(file_path),
-                            extraction_mode="layout",
-                            extract_tables="markdown",
-                            extract_images=True,
-                            )
+    loader = PDFPlumberLoader(
+        str(file_path),
+        extraction_mode="layout",
+        extract_tables="markdown",
+        extract_images=True,
+    )
     docs = loader.load()
     assert len(docs) == 29
     assert len(docs[0].metadata) == 15
@@ -128,15 +138,13 @@ def test_pdfminer_loader() -> None:
 
     # Verify that concatenating pages parameter works
     file_path = Path(__file__).parent.parent / "examples/hello.pdf"
-    loader = PDFMinerLoader(str(file_path),
-                            extraction_mode="plain")
+    loader = PDFMinerLoader(str(file_path), extraction_mode="plain")
     docs = loader.load()
 
     assert len(docs) == 1
 
     file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
-    loader = PDFMinerLoader(str(file_path),
-                            extraction_mode="page")
+    loader = PDFMinerLoader(str(file_path), extraction_mode="page")
 
     docs = loader.load()
     assert len(docs) == 16
@@ -195,6 +203,7 @@ def test_pymupdf_loader() -> None:
     assert loader.file_path != web_path
     assert len(docs) == 1
 
+
 def test_pymupdf4llm_loader() -> None:
     """Test PyMuPDF4llm loader."""
     file_path = Path(__file__).parent.parent / "examples/hello.pdf"
@@ -239,66 +248,66 @@ def test_mathpix_loader() -> None:
     "file_path, features, docs_length, create_client",
     [
         (
-                (
-                        "https://amazon-textract-public-content.s3.us-east-2.amazonaws.com"
-                        "/langchain/alejandro_rosalez_sample_1.jpg"
-                ),
-                ["FORMS", "TABLES", "LAYOUT"],
-                1,
-                False,
+            (
+                "https://amazon-textract-public-content.s3.us-east-2.amazonaws.com"
+                "/langchain/alejandro_rosalez_sample_1.jpg"
+            ),
+            ["FORMS", "TABLES", "LAYOUT"],
+            1,
+            False,
         ),
         (
-                (
-                        "https://amazon-textract-public-content.s3.us-east-2.amazonaws.com"
-                        "/langchain/alejandro_rosalez_sample_1.jpg"
-                ),
-                [],
-                1,
-                False,
+            (
+                "https://amazon-textract-public-content.s3.us-east-2.amazonaws.com"
+                "/langchain/alejandro_rosalez_sample_1.jpg"
+            ),
+            [],
+            1,
+            False,
         ),
         (
-                (
-                        "https://amazon-textract-public-content.s3.us-east-2.amazonaws.com"
-                        "/langchain/alejandro_rosalez_sample_1.jpg"
-                ),
-                ["TABLES"],
-                1,
-                False,
+            (
+                "https://amazon-textract-public-content.s3.us-east-2.amazonaws.com"
+                "/langchain/alejandro_rosalez_sample_1.jpg"
+            ),
+            ["TABLES"],
+            1,
+            False,
         ),
         (
-                (
-                        "https://amazon-textract-public-content.s3.us-east-2.amazonaws.com"
-                        "/langchain/alejandro_rosalez_sample_1.jpg"
-                ),
-                ["FORMS"],
-                1,
-                False,
+            (
+                "https://amazon-textract-public-content.s3.us-east-2.amazonaws.com"
+                "/langchain/alejandro_rosalez_sample_1.jpg"
+            ),
+            ["FORMS"],
+            1,
+            False,
         ),
         (
-                (
-                        "https://amazon-textract-public-content.s3.us-east-2.amazonaws.com"
-                        "/langchain/alejandro_rosalez_sample_1.jpg"
-                ),
-                ["LAYOUT"],
-                1,
-                False,
+            (
+                "https://amazon-textract-public-content.s3.us-east-2.amazonaws.com"
+                "/langchain/alejandro_rosalez_sample_1.jpg"
+            ),
+            ["LAYOUT"],
+            1,
+            False,
         ),
         (str(Path(__file__).parent.parent / "examples/hello.pdf"), ["FORMS"], 1, False),
         (str(Path(__file__).parent.parent / "examples/hello.pdf"), [], 1, False),
         (
-                "s3://amazon-textract-public-content/langchain/layout-parser-paper.pdf",
-                ["FORMS", "TABLES", "LAYOUT"],
-                16,
-                True,
+            "s3://amazon-textract-public-content/langchain/layout-parser-paper.pdf",
+            ["FORMS", "TABLES", "LAYOUT"],
+            16,
+            True,
         ),
     ],
 )
 @pytest.mark.skip(reason="Requires AWS credentials to run")
 def test_amazontextract_loader(
-        file_path: str,
-        features: Union[Sequence[str], None],
-        docs_length: int,
-        create_client: bool,
+    file_path: str,
+    features: Union[Sequence[str], None],
+    docs_length: int,
+    create_client: bool,
 ) -> None:
     if create_client:
         import boto3
