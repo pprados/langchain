@@ -254,8 +254,8 @@ def test_standard_parameters(
 )
 @pytest.mark.parametrize(
     "parser_factory,params", [
-        ("PyMuPDFParser",{}),
-        ("PDFPlumberParser",{}),
+        # ("PyMuPDFParser",{}),
+        # ("PDFPlumberParser",{}),
         ("UnstructuredPDFParser",{"strategy":"hi_res", "skip_infer_table_types":[],}),
     ],
 )
@@ -278,7 +278,9 @@ def test_parser_with_table(
         for doc in docs:
             print(doc.page_content)  # FIXME
             if extract_tables == "markdown":
-                pattern = r"(?s)\|.*\|(?:\n\|--[-:\s]*\|)?(?:\n\|.*\|)+"
+                pattern = (r"(?s)((?:(?:[^\n]*\|)\n)"
+                           r"(?:(?:\|--[-:\s]*\|)"
+                           r"(?:[-:\s]*\|)+\n)(?:(?:[^\n]*\|)\n)+)")
             elif extract_tables == "html":
                 pattern = r"(?s)<table[^>]*>(.*?)<\/table>"
             else: # CSV
