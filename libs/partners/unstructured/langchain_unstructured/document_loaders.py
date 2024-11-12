@@ -338,6 +338,8 @@ class UnstructuredPDFParser(ImagesPdfParser):
                                        metadata=doc_metadata|
                                                          {"page": page_number})
     def _convert_table(self,html_table:Optional[str]) -> str:
+        if not self.extract_tables:
+            return ""
         if not html_table:
             return ""
         if self.extract_tables == "html":
