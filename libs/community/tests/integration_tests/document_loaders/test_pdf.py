@@ -11,8 +11,10 @@ from langchain_community.document_loaders import (
     PDFMinerPDFasHTMLLoader,
     PDFPlumberLoader,
     PyMuPDFLoader,
-    PyPDFium2Loader, PyPDFLoader,
+    PyPDFium2Loader,
+    PyPDFLoader,
 )
+
 
 def test_pypdf_loader() -> None:
     """Test PDFMiner loader."""
@@ -76,7 +78,6 @@ def test_pypdf_loader() -> None:
     docs = loader.load()
     assert len(docs) == 1
     assert len(docs[0].metadata) == 12
-
 
 
 def test_pdfplumber_loader() -> None:
@@ -238,14 +239,14 @@ def test_mathpix_loader() -> None:
     docs = loader.load()
 
     assert len(docs) == 1
-    print(docs[0].page_content)  # noqa: T201
+    print(docs[0].page_content)
 
     file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
     loader = MathpixPDFLoader(file_path)
 
     docs = loader.load()
     assert len(docs) == 1
-    print(docs[0].page_content)  # noqa: T201
+    print(docs[0].page_content)
 
 
 @pytest.mark.parametrize(
@@ -323,7 +324,7 @@ def test_amazontextract_loader(
     else:
         loader = AmazonTextractPDFLoader(file_path, textract_features=features)
     docs = loader.load()
-    print(docs)  # noqa: T201
+    print(docs)
 
     assert len(docs) == docs_length
 

@@ -23,13 +23,13 @@ from typing import (
 from urllib.parse import urlparse
 
 import requests
-from langchain_core._api.deprecation import deprecated, warn_deprecated
-from langchain_core.documents import Document
-from langchain_core.utils import get_from_dict_or_env
 from langchain_community.document_loaders.base import BaseLoader
 from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_community.document_loaders.dedoc import DedocBaseLoader
 from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
+from langchain_core._api.deprecation import deprecated, warn_deprecated
+from langchain_core.documents import Document
+from langchain_core.utils import get_from_dict_or_env
 
 from langchain_community.document_loaders.parsers.pdf import (
     CONVERT_IMAGE_TO_TEXT,
@@ -181,9 +181,10 @@ class OnlinePDFLoader(BasePDFLoader):
 class PyPDFLoader(BasePDFLoader):
     """Load and parse a PDF file using 'pypdf' library.
 
-    This class provides methods to load and parse PDF documents, supporting various configurations such as handling
-    password-protected files, extracting images, and defining extraction mode.
-    It integrates the `pypdf` library for PDF processing and offers both synchronous and asynchronous document loading.
+    This class provides methods to load and parse PDF documents, supporting various
+    configurations such as handling password-protected files, extracting images, and
+    defining extraction mode. It integrates the `pypdf` library for PDF processing and
+    offers both synchronous and asynchronous document loading.
 
     Examples:
         Setup:
@@ -230,7 +231,6 @@ class PyPDFLoader(BasePDFLoader):
             print(docs[0].page_content[:100])
             print(docs[0].metadata)
     """
- # noqa: E501
 
     def __init__(
         self,
@@ -250,17 +250,23 @@ class PyPDFLoader(BasePDFLoader):
         Args:
             file_path: The path to the PDF file to be loaded.
             password: Optional password for opening encrypted PDFs.
-            headers: Optional headers to use for GET request to download a file from a web path.
+            headers: Optional headers to use for GET request to download a file from a
+              web path.
             extract_images: Whether to extract images from the PDF.
-            images_to_text: Function or callable to convert images to text during extraction.
-            mode: The extraction mode, either "single" for the entire document or "page" for page-wise extraction.
-            pages_delimitor: A string delimiter to separate pages in single-mode extraction.
-            extraction_mode: “plain” for legacy functionality, “layout” for experimental layout mode functionality
-            extraction_kwargs: Optional additional parameters for the extraction process.
+            images_to_text: Function or callable to convert images to text during
+              extraction.
+            mode: The extraction mode, either "single" for the entire document or
+              "page" for page-wise extraction.
+            pages_delimitor: A string delimiter to separate pages in single-mode
+              extraction.
+            extraction_mode: “plain” for legacy functionality, “layout” for
+              experimental layout mode functionality
+            extraction_kwargs: Optional additional parameters for the extraction
+              process.
 
         Returns:
-            This method does not directly return data. Use the `load`, `lazy_load` or `aload` methods
-            to retrieve parsed documents with content and metadata.
+            This method does not directly return data. Use the `load`, `lazy_load` or
+            `aload` methods to retrieve parsed documents with content and metadata.
 
         Raises:
             ImportError: If the `pypdf` package is not installed.
@@ -287,7 +293,9 @@ class PyPDFLoader(BasePDFLoader):
     ) -> Iterator[Document]:
         """Lazy load given path as pages."""
         if self.web_path:
-            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
+            blob = Blob.from_data(
+                open(self.file_path, "rb").read(), path=self.web_path
+            )  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
@@ -296,10 +304,11 @@ class PyPDFLoader(BasePDFLoader):
 class PyPDFium2Loader(BasePDFLoader):
     """Load and parse a PDF file using the `pypdfium2` library.
 
-    This class provides methods to load and parse PDF documents, supporting various configurations such as handling
-    password-protected files, extracting images, and defining extraction mode.
-    It integrates the `pypdfium2` library for PDF processing and offers both synchronous and asynchronous
-    document loading.
+    This class provides methods to load and parse PDF documents, supporting various
+    configurations such as handling password-protected files, extracting images, and
+    defining extraction mode.
+    It integrates the `pypdfium2` library for PDF processing and offers both
+    synchronous and asynchronous document loading.
 
     Examples:
         Setup:
@@ -360,17 +369,20 @@ class PyPDFium2Loader(BasePDFLoader):
 
         Args:
             file_path: The path to the PDF file to be loaded.
-            mode: The extraction mode, either "single" for extracting the entire document as one chunk or "page" for
-                page-wise extraction.
-            pages_delimitor: A string delimiter to separate pages when using single-document extraction mode.
+            mode: The extraction mode, either "single" for extracting the entire
+                document as one chunk or "page" for page-wise extraction.
+            pages_delimitor: A string delimiter to separate pages when using
+              single-document extraction mode.
             password: Optional password for opening encrypted PDFs.
             extract_images: Whether to extract images from the PDF.
-            images_to_text: Function or callable to convert images to text during extraction.
-            headers: Optional headers to use for GET request to download a file from a web path.
+            images_to_text: Function or callable to convert images to text during
+              extraction.
+            headers: Optional headers to use for GET request to download a file from
+              a web path.
 
         Returns:
-            This class does not directly return data. Use the `load`, `lazy_load` or `aload` methods
-            to retrieve parsed documents with content and metadata.
+            This class does not directly return data. Use the `load`, `lazy_load` or
+            `aload` methods to retrieve parsed documents with content and metadata.
 
         Raises:
             ImportError: If the `pypdfium2` package is not installed.
@@ -389,7 +401,9 @@ class PyPDFium2Loader(BasePDFLoader):
     ) -> Iterator[Document]:
         """Lazy load given path as pages."""
         if self.web_path:
-            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
+            blob = Blob.from_data(
+                open(self.file_path, "rb").read(), path=self.web_path
+            )  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.parse(blob)
@@ -403,9 +417,10 @@ class PyPDFium2Loader(BasePDFLoader):
 class PyPDFDirectoryLoader(BaseLoader):
     """Load and parse a directory of PDF files using 'pypdf' library.
 
-    This class provides methods to load and parse multiple PDF documents in a directory, supporting options for
-    recursive search, handling password-protected files, extracting images, and defining extraction modes.
-    It integrates the `pypdf` library for PDF processing and offers synchronous document loading.
+    This class provides methods to load and parse multiple PDF documents in a directory,
+    supporting options for recursive search, handling password-protected files,
+    extracting images, and defining extraction modes. It integrates the `pypdf` library
+    for PDF processing and offers synchronous document loading.
 
     Examples:
         Setup:
@@ -478,16 +493,20 @@ class PyPDFDirectoryLoader(BaseLoader):
             recursive: Whether to search subdirectories recursively.
             extract_images: Whether to extract images from PDFs.
             password: Optional password for opening encrypted PDFs.
-            mode: The extraction mode, either "single" for extracting the entire document or "page" for page-wise
-                    extraction.
-            images_to_text: Function or callable to convert images to text during extraction.
-            headers: Optional headers to use for GET request to download a file from a web path.
-            extraction_mode: “plain” for legacy functionality, “layout” for experimental layout mode functionality
-            extraction_kwargs: Optional additional parameters for the extraction process.
+            mode: The extraction mode, either "single" for extracting the entire
+                document or "page" for page-wise extraction.
+            images_to_text: Function or callable to convert images to text during
+              extraction.
+            headers: Optional headers to use for GET request to download a file from a
+              web path.
+            extraction_mode: “plain” for legacy functionality, “layout” for
+              experimental layout mode functionality
+            extraction_kwargs: Optional additional parameters for the extraction
+              process.
 
         Returns:
-            This method does not directly return data. Use the `load` method to retrieve parsed documents with
-            content and metadata.
+            This method does not directly return data. Use the `load` method to
+            retrieve parsed documents with content and metadata.
         """
         self.password = password
         self.mode = mode
@@ -539,10 +558,10 @@ class PyPDFDirectoryLoader(BaseLoader):
 class PDFMinerLoader(BasePDFLoader):
     """Load and parse a PDF file using 'pdfminer.six' library.
 
-    This class provides methods to load and parse PDF documents, supporting various configurations such as handling
-    password-protected files, extracting images, and defining extraction mode.
-    It integrates the `pdfminer.six` library for PDF processing and offers both synchronous and asynchronous document
-    loading.
+    This class provides methods to load and parse PDF documents, supporting various
+    configurations such as handling password-protected files, extracting images, and
+    defining extraction mode. It integrates the `pdfminer.six` library for PDF
+    processing and offers both synchronous and asynchronous document loading.
 
     Examples:
         Setup:
@@ -604,19 +623,24 @@ class PDFMinerLoader(BasePDFLoader):
         """Initialize with a file path.
 
         Args:
-            file_path: The path to the PDF file to be loaded. Accepts both string and `PurePath`.
+            file_path: The path to the PDF file to be loaded. Accepts both string and
+            `PurePath`.
             password: Optional password for opening encrypted PDFs.
-            mode: The extraction mode, either "single" for the entire document or "page" for page-wise extraction.
-            pages_delimitor: A string delimiter to separate pages in single-mode extraction.
-            headers: Optional headers to use for GET request to download a file from a web path.
+            mode: The extraction mode, either "single" for the entire document or
+                "page" for page-wise extraction.
+            pages_delimitor: A string delimiter to separate pages in single-mode
+                extraction.
+            headers: Optional headers to use for GET request to download a file from a
+                web path.
             extract_images: Whether to extract images from the PDF. Defaults to `False`.
-            images_to_text: Function or callable to convert images to text during extraction.
-            concatenate_pages: Deprecated. If True, concatenate all PDF pages into one a single
-                               document. Otherwise, return one document per page.
+            images_to_text: Function or callable to convert images to text during
+                extraction.
+            concatenate_pages: Deprecated. If True, concatenate all PDF pages into one
+                a single document. Otherwise, return one document per page.
 
         Returns:
-            This method does not directly return data. Use the `load`, `lazy_load` or `aload` methods
-            to retrieve parsed documents with content and metadata.
+            This method does not directly return data. Use the `load`, `lazy_load` or
+            `aload` methods to retrieve parsed documents with content and metadata.
 
         Raises:
             ImportError: If the `pdfminer.six` package is not installed.
@@ -644,7 +668,9 @@ class PDFMinerLoader(BasePDFLoader):
     ) -> Iterator[Document]:
         """Lazily load documents."""
         if self.web_path:
-            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
+            blob = Blob.from_data(
+                open(self.file_path, "rb").read(), path=self.web_path
+            )  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
@@ -700,9 +726,10 @@ class PDFMinerPDFasHTMLLoader(BasePDFLoader):
 class PyMuPDFLoader(BasePDFLoader):
     """Load and parse a PDF file using 'PyMuPDF' library.
 
-    This class provides methods to load and parse PDF documents, supporting various configurations such as handling
-    password-protected files, extracting tables, extracting images, and defining extraction mode.
-    It integrates the `PyMuPDF` library for PDF processing and offers both synchronous and asynchronous document
+    This class provides methods to load and parse PDF documents, supporting various
+    configurations such as handling password-protected files, extracting tables,
+    extracting images, and defining extraction mode. It integrates the `PyMuPDF`
+    library for PDF processing and offers both synchronous and asynchronous document
     loading.
 
     Examples:
@@ -760,9 +787,7 @@ class PyMuPDFLoader(BasePDFLoader):
         pages_delimitor: str = _default_page_delimitor,
         extract_images: bool = False,
         images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-        extract_tables: Union[
-            Literal["csv"], Literal["markdown"], Literal["html"], None
-        ] = None,
+        extract_tables: Union[Literal["csv", "markdown", "html"], None] = None,
         headers: Optional[dict] = None,
         extract_tables_settings: Optional[dict[str, Any]] = None,
         **kwargs: Any,
@@ -772,18 +797,25 @@ class PyMuPDFLoader(BasePDFLoader):
         Args:
             file_path: The path to the PDF file to be loaded.
             password: Optional password for opening encrypted PDFs.
-            mode: The extraction mode, either "single" for the entire document or "page" for page-wise extraction.
-            pages_delimitor: A string delimiter to separate pages in single-mode extraction.
+            mode: The extraction mode, either "single" for the entire document or
+                "page" for page-wise extraction.
+            pages_delimitor: A string delimiter to separate pages in single-mode
+                extraction.
             extract_images: Whether to extract images from the PDF.
-            images_to_text: Function or callable to convert images to text during extraction.
-            extract_tables: Whether to extract tables in a specific format, such as "csv", "markdown", or "html".
-            extract_tables_settings: Optional dictionary of settings for customizing table extraction.
-            headers: Optional headers to use for GET request to download a file from a web path.
-            **kwargs: Additional keyword arguments for customizing text extraction behavior.
+            images_to_text: Function or callable to convert images to text during
+                extraction.
+            extract_tables: Whether to extract tables in a specific format, such as
+                "csv", "markdown", or "html".
+            extract_tables_settings: Optional dictionary of settings for customizing
+                table extraction.
+            headers: Optional headers to use for GET request to download a file from a
+                web path.
+            **kwargs: Additional keyword arguments for customizing text extraction
+                behavior.
 
         Returns:
-            This method does not directly return data. Use the `load`, `lazy_load`, or `aload` methods
-            to retrieve parsed documents with content and metadata.
+            This method does not directly return data. Use the `load`, `lazy_load`, or
+            `aload` methods to retrieve parsed documents with content and metadata.
 
         Raises:
             ImportError: If the `PyMuPDF` package is not installed.
@@ -939,9 +971,7 @@ class MathpixPDFLoader(BasePDFLoader):
                 # This indicates an error with the PDF processing
                 raise ValueError("Unable to retrieve PDF from Mathpix")
             else:
-                print(  # noqa: T201
-                    f"Status: {status}, waiting for processing to complete"
-                )
+                print(f"Status: {status}, waiting for processing to complete")
                 time.sleep(5)
         raise TimeoutError
 
@@ -986,9 +1016,12 @@ class MathpixPDFLoader(BasePDFLoader):
 class PDFPlumberLoader(BasePDFLoader):
     """Load and parse a PDF file using 'pdfplumber' library.
 
-    This class provides methods to load and parse PDF documents, supporting various configurations such as handling
-    password-protected files, extracting tables, extracting images, and defining extraction mode.
-    It integrates the `pdfplumber` library for PDF processing and offers both synchronous and asynchronous document
+    This class provides methods to load and parse PDF documents, supporting various
+        configurations such as handling
+    password-protected files, extracting tables, extracting images, and defining
+        extraction mode.
+    It integrates the `pdfplumber` library for PDF processing and offers both
+        synchronous and asynchronous document
     loading.
 
     Examples:
@@ -1060,19 +1093,25 @@ class PDFPlumberLoader(BasePDFLoader):
             file_path: The path to the PDF file to be loaded.
             text_kwargs: Keyword arguments to pass to ``pdfplumber.Page.extract_text()``
             dedupe:  Avoiding the error of duplicate characters if `dedupe=True`
-            headers: Optional headers to use for GET request to download a file from a web path.
+            headers: Optional headers to use for GET request to download a file from a
+            web path.
             password: Optional password for opening encrypted PDFs.
-            mode: The extraction mode, either "single" for extracting the entire document as
-                one chunk or "page" for page-wise extraction.
+            mode: The extraction mode, either "single" for extracting the entire
+                document as one chunk or "page" for page-wise extraction.
             extract_images: Whether to extract images from the PDF
-            images_to_text: Optional function or callable to convert images to text during extraction.
-            pages_delimitor: A string delimiter to separate pages in single-mode extraction.
-            extract_tables: Whether to extract images from the PDF in a specific format, such as "csv", "markdown",
+            images_to_text: Optional function or callable to convert images to text
+            during extraction.
+            pages_delimitor: A string delimiter to separate pages in single-mode
+            extraction.
+            extract_tables: Whether to extract images from the PDF in a specific format,
+            such as "csv", "markdown",
                             or "html".
-            extract_tables_settings: Optional dictionary of settings for customizing table extraction.
+            extract_tables_settings: Optional dictionary of settings for customizing
+            table extraction.
 
         Returns:
-            This method does not directly return data. Use the `load`, `lazy_load`, or `aload` methods
+            This method does not directly return data. Use the `load`, `lazy_load`,
+            or `aload` methods
             to retrieve parsed documents with content and metadata.
 
         Raises:
@@ -1087,12 +1126,6 @@ class PDFPlumberLoader(BasePDFLoader):
             )
 
         super().__init__(file_path, headers=headers)
-        if text_kwargs == None:
-            # text_kwargs = {  # FIXME
-            #     "use_text_flow": False,
-            #     "keep_blank_chars": False,
-            # }
-            pass
         self.parser = PDFPlumberParser(
             password=password,
             mode=mode,
@@ -1110,7 +1143,9 @@ class PDFPlumberLoader(BasePDFLoader):
     ) -> Iterator[Document]:
         """Lazy load given path as pages."""
         if self.web_path:
-            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
+            blob = Blob.from_data(
+                open(self.file_path, "rb").read(), path=self.web_path
+            )  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
@@ -1227,7 +1262,7 @@ class AmazonTextractPDFLoader(BasePDFLoader):
         # raises ValueError when multi-page and not on S3"""
 
         if self.web_path and self._is_s3_url(self.web_path):
-            blob = Blob(path=self.web_path)  # type: ignore[call-arg] # type: ignore[misc]
+            blob = Blob(path=self.web_path)
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
             if AmazonTextractPDFLoader._get_number_of_pages(blob) > 1:
@@ -1263,7 +1298,9 @@ class AmazonTextractPDFLoader(BasePDFLoader):
         elif blob.mimetype in ["image/png", "image/jpeg"]:  # type: ignore[attr-defined]
             return 1
         else:
-            raise ValueError(f"unsupported mime type: {blob.mimetype}")  # type: ignore[attr-defined]
+            raise ValueError(
+                f"unsupported mime type: {blob.mimetype}"
+            )  # type: ignore[attr-defined]
 
 
 class DedocPDFLoader(DedocBaseLoader):
@@ -1454,10 +1491,10 @@ class ZeroxPDFLoader(BasePDFLoader):
                 Hosted models are passed in format "<provider>/<model>"
                 Examples: "azure/gpt-4o-mini", "vertex_ai/gemini-1.5-flash-001"
                           See more details in zerox documentation.
-            **zerox_kwargs: 
+            **zerox_kwargs:
                 Arguments specific to the zerox function.
                 see datailed list of arguments here in zerox repository:
-                https://github.com/getomni-ai/zerox/blob/main/py_zerox/pyzerox/core/zerox.py#L25
+                https://github.com/getomni-ai/zerox/blob/main/py_zerox/pyzerox/core/zerox.py#L25  # noqa: F501
         """  # noqa: E501
         self.zerox_kwargs = zerox_kwargs
         self.model = model
