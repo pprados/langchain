@@ -25,6 +25,8 @@ from typing import (
 from urllib.parse import urlparse
 
 import numpy as np
+from langchain_community.document_loaders.base import BaseBlobParser
+from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_core._api.deprecation import (
     deprecated,
 )
@@ -32,9 +34,6 @@ from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import BasePromptTemplate, PromptTemplate
-
-from langchain_community.document_loaders.base import BaseBlobParser
-from langchain_community.document_loaders.blob_loaders import Blob
 
 if TYPE_CHECKING:
     import pdfplumber
@@ -47,7 +46,6 @@ if TYPE_CHECKING:
     import pypdfium2._helpers.page
     from pypdf import PageObject
     from textractor.data.text_linearization_config import TextLinearizationConfig
-
 
 _PDF_FILTER_WITH_LOSS = ["DCTDecode", "DCT", "JPXDecode"]
 _PDF_FILTER_WITHOUT_LOSS = [
@@ -144,12 +142,11 @@ def __merge_text_and_extras(
                 if previous_text:
                     all_text = previous_text + text_from_page[pos:]
                 else:
-                    all_text = (
-                        text_from_page[:pos]
-                        + delim
-                        + "\n\n".join(extras)
-                        + text_from_page[pos:]
-                    )
+                    all_extras = ""
+                    str_extras = "\n\n".join(filter(lambda x: x, extras))
+                    if str_extras:
+                        all_extras = delim + str_extras
+                    all_text = text_from_page[:pos] + all_extras + text_from_page[pos:]
                 break
         else:
             all_text = None
@@ -172,7 +169,12 @@ def _merge_text_and_extras(extras: list[str], text_from_page: str) -> str:
     """
     all_text = __merge_text_and_extras(extras, text_from_page, True)
     if not all_text:
-        all_text = text_from_page + "\n\n" + "\n\n".join(extras)
+        all_extras = ""
+        str_extras = "\n\n".join(filter(lambda x: x, extras))
+        if str_extras:
+            all_extras = _delim[-1] + str_extras
+        all_text = text_from_page + all_extras
+
     return all_text
 
 
@@ -1625,9 +1627,9 @@ class PDFPlumberParser(ImagesPdfParser):
                 )
             )
             for page in doc.pages:
-                tables_bbox: list[tuple[float, float, float, float]] = (
-                    self._extract_tables_bbox_from_page(page)
-                )
+                tables_bbox: list[
+                    tuple[float, float, float, float]
+                ] = self._extract_tables_bbox_from_page(page)
                 tables_content = self._extract_tables_from_page(page)
                 images_bbox = [geometry.obj_to_bbox(image) for image in page.images]
                 image_from_page = self._extract_images_from_page(page)
@@ -2084,7 +2086,9 @@ class AmazonTextractPDFParser(BaseBlobParser):
         the blob.data is taken
         """
 
-        url_parse_result = urlparse(str(blob.path)) if blob.path else None  # type: ignore[attr-defined]
+        url_parse_result = (
+            urlparse(str(blob.path)) if blob.path else None
+        )  # type: ignore[attr-defined]
         # Either call with S3 path (multi-page) or with bytes (single-page)
         if (
             url_parse_result
@@ -2130,7 +2134,9 @@ class DocumentIntelligenceParser(BaseBlobParser):
         self.client = client
         self.model = model
 
-    def _generate_docs(self, blob: Blob, result: Any) -> Iterator[Document]:  # type: ignore[valid-type]
+    def _generate_docs(
+        self, blob: Blob, result: Any
+    ) -> Iterator[Document]:  # type: ignore[valid-type]
         for p in result.pages:
             content = " ".join([line.content for line in p.lines])
 
