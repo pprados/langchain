@@ -1166,6 +1166,14 @@ class AmazonTextractPDFLoader(BasePDFLoader):
         """
         super().__init__(file_path, headers=headers)
 
+        try:
+            import textractcaller as tc
+        except ImportError:
+            raise ImportError(
+                "Could not import amazon-textract-caller python package. "
+                "Please install it with `pip install amazon-textract-caller`."
+            )
+
         if textract_features:
             features = [tc.Textract_Features[x] for x in textract_features]
         else:
