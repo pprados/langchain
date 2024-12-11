@@ -7,10 +7,10 @@ from typing import Iterator, List
 
 import numpy as np
 import pytest
-from langchain_community.document_loaders.base import BaseBlobParser
-from langchain_community.document_loaders.blob_loaders import Blob
 
 import langchain_community.document_loaders.parsers as pdf_parsers
+from langchain_community.document_loaders.base import BaseBlobParser
+from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_community.document_loaders.parsers import (
     PDFMinerParser,
     PDFPlumberParser,
