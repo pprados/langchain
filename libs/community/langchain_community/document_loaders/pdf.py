@@ -1217,14 +1217,6 @@ class AmazonTextractPDFLoader(BasePDFLoader):
         # the self.file_path is local, but the blob has to include
         # the S3 location if the file originated from S3 for multi-page documents
         # raises ValueError when multi-page and not on S3"""
-        try:
-            import textractcaller as tc
-        except ImportError:
-            raise ImportError(
-                "Could not import amazon-textract-caller python package. "
-                "Please install it with `pip install amazon-textract-caller`."
-            )
-
         if self.web_path and self._is_s3_url(self.web_path):
             blob = Blob(path=self.web_path)
         else:
