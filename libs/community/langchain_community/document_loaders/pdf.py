@@ -677,7 +677,7 @@ class PDFMinerPDFasHTMLLoader(BasePDFLoader):
     def lazy_load(self) -> Iterator[Document]:
         """Load file."""
         try:
-            from pdfminer.high_level import extract_text_to_fp  # noqa:F401
+            from pdfminer.high_level import extract_text_to_fp
         except ImportError:
             raise ImportError(
                 "`pdfminer` package not found, please install it with "
