@@ -1,4 +1,3 @@
-import asyncio
 import copy
 import json
 import logging
@@ -13,6 +12,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     BinaryIO,
+    Iterable,
     Iterator,
     Literal,
     Mapping,
@@ -40,6 +40,7 @@ from langchain_community.document_loaders.parsers.pdf import (
     PyMuPDFParser,
     PyPDFium2Parser,
     PyPDFParser,
+    ZeroxPDFParser,
     _default_page_delimitor,
 )
 from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
@@ -1400,8 +1401,8 @@ class DocumentIntelligenceLoader(BasePDFLoader):
         ... )
         """
 
-        self.parser = DocumentIntelligenceParser(client=client, model=model)
         super().__init__(file_path, headers=headers)
+        self.parser = DocumentIntelligenceParser(client=client, model=model)
 
     def load(self) -> list[Document]:
         """Load given path as pages."""
@@ -1423,7 +1424,7 @@ class ZeroxPDFLoader(BasePDFLoader):
     Zerox converts PDF document to serties of images (page-wise) and
     uses vision-capable LLM model to generate Markdown representation.
 
-    Zerox utilizes anyc operations. Therefore when using this loader
+    Zerox utilizes async operations. Therefore when using this loader
     inside Jupyter Notebook (or any environment running async)
     you will need to:
     ```python
@@ -1435,66 +1436,107 @@ class ZeroxPDFLoader(BasePDFLoader):
     def __init__(
         self,
         file_path: Union[str, Path],
+        *,
+        headers: Optional[dict] = None,
+        mode: Literal["single", "page"] = "page",
+        pages_delimitor: str = _default_page_delimitor,
+        images_to_text: CONVERT_IMAGE_TO_TEXT = None,
+        extract_images: bool = True,
+        extract_tables: Union[Literal["markdown", "html"], None] = "markdown",
+        cleanup: bool = True,
+        concurrency: int = 10,
+        maintain_format: bool = False,
         model: str = "gpt-4o-mini",
-        **zerox_kwargs: Any,
+        custom_system_prompt: Optional[str] = None,
+        select_pages: Optional[Union[int, Iterable[int]]] = None,
+        **zerox_kwargs: dict[str, Any],
     ) -> None:
-        super().__init__(file_path=file_path)
         """
-        Initialize the parser with arguments to be passed to the zerox function.
-        Make sure to set necessary environmnet variables such as API key, endpoint, etc.
+        Initialize the loader with arguments to be passed to the zerox function.
+        Make sure to set necessary environment variables such as API key, endpoint, etc.
         Check zerox documentation for list of necessary environment variables for
         any given model.
 
         Args:
             file_path:
                 Path or url of the pdf file
+
+            password: Optional password for opening encrypted PDFs.
+            headers: Optional headers to use for GET request to download a file from a
+              web path.
+            extract_images: Whether to extract images from the PDF.
+            images_to_text: Function or callable to convert images to text during
+              extraction.
+            mode: The extraction mode, either "single" for the entire document or
+              "page" for page-wise extraction.
+            pages_delimitor: A string delimiter to separate pages in single-mode
+              extraction.
             model:
                 Vision capable model to use. Defaults to "gpt-4o-mini".
                 Hosted models are passed in format "<provider>/<model>"
                 Examples: "azure/gpt-4o-mini", "vertex_ai/gemini-1.5-flash-001"
                           See more details in zerox documentation.
-            **zerox_kwargs:
+            cleanup:
+                Whether to cleanup the temporary files after processing, defaults
+                to True
+            concurrency:
+                The number of concurrent processes to run, defaults to 10
+            file_path:
+                The path or URL to the PDF file to process.
+            maintain_format:
+                Whether to maintain the format from the previous page, defaults to False
+            model:
+                The model to use for generating completions, defaults to "gpt-4o-mini".
+                Note - Refer: https://docs.litellm.ai/docs/providers to pass correct
+                model name as according to provider it might be different from
+                actual name.
+            output_dir:
+                The directory to save the markdown output, defaults to None
+            temp_dir:
+                The directory to store temporary files, defaults to some named folder
+                in system's temp directory. If already exists, the contents will be
+                deleted for zerox uses it.
+            custom_system_prompt:
+                The system prompt to use for the model, this overrides the default
+                system prompt of zerox. Generally it is not required unless you want
+                some specific behaviour. When set, it will raise a friendly warning,
+                defaults to None
+            select_pages:
+                Pages to process, can be a single page number or an iterable of page
+                numbers, defaults to None
+            **kwargs:
                 Arguments specific to the zerox function.
-                see datailed list of arguments here in zerox repository:
-                https://github.com/getomni-ai/zerox/blob/main/py_zerox/pyzerox/core/zerox.py#L25  # noqa: F501
-        """  # noqa: E501
-        self.zerox_kwargs = zerox_kwargs
-        self.model = model
+        """
+        super().__init__(file_path, headers=headers)
+        self.parser = ZeroxPDFParser(
+            mode=mode,
+            pages_delimitor=pages_delimitor,
+            images_to_text=images_to_text,
+            extract_images=extract_images,
+            extract_tables=extract_tables,
+            cleanup=cleanup,
+            concurrency=concurrency,
+            maintain_format=maintain_format,
+            model=model,
+            custom_system_prompt=custom_system_prompt,
+            select_pages=select_pages,
+            **zerox_kwargs,
+        )
 
     def lazy_load(self) -> Iterator[Document]:
         """
-        Loads documnts from pdf utilizing zerox library:
+        Loads documents from pdf utilizing zerox library:
         https://github.com/getomni-ai/zerox
 
         Returns:
             Iterator[Document]: An iterator over parsed Document instances.
         """
-
-        try:
-            from pyzerox import zerox
-        except ImportError:
-            raise ImportError(
-                "Could not import pyzerox python package. "
-                "Please install it with `pip install pyzerox`."
-            )
-
-        # Directly call asyncio.run to execute zerox synchronously
-        zerox_output = asyncio.run(
-            zerox(file_path=self.file_path, model=self.model, **self.zerox_kwargs)
-        )
-
-        # Convert zerox output to Document instances and yield them
-        if len(zerox_output.pages) > 0:
-            num_pages = zerox_output.pages[-1].page
-            for page in zerox_output.pages:
-                yield Document(
-                    page_content=page.content,
-                    metadata={
-                        "source": self.source,
-                        "page": page.page,
-                        "num_pages": num_pages,
-                    },
-                )
+        """Lazy load given path as pages."""
+        if self.web_path:
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
+        else:
+            blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
+        yield from self.parser.lazy_parse(blob)
 
 
 # Legacy: only for backwards compatibility. Use PyPDFLoader instead
