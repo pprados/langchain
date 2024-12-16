@@ -24,14 +24,13 @@ from typing import (
 from urllib.parse import urlparse
 
 import requests
-from langchain_community.document_loaders.base import BaseLoader
-from langchain_community.document_loaders.blob_loaders import Blob
-from langchain_community.document_loaders.dedoc import DedocBaseLoader
-from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
 from langchain_core._api.deprecation import deprecated, warn_deprecated
 from langchain_core.documents import Document
 from langchain_core.utils import get_from_dict_or_env
 
+from langchain_community.document_loaders.base import BaseLoader
+from langchain_community.document_loaders.blob_loaders import Blob
+from langchain_community.document_loaders.dedoc import DedocBaseLoader
 from langchain_community.document_loaders.parsers.pdf import (
     CONVERT_IMAGE_TO_TEXT,
     AmazonTextractPDFParser,
@@ -44,6 +43,7 @@ from langchain_community.document_loaders.parsers.pdf import (
     ZeroxPDFParser,
     _default_page_delimitor,
 )
+from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
 
 if TYPE_CHECKING:
     from textractor.data.text_linearization_config import TextLinearizationConfig
@@ -286,9 +286,7 @@ class PyPDFLoader(BasePDFLoader):
     ) -> Iterator[Document]:
         """Lazy load given path as pages."""
         if self.web_path:
-            blob = Blob.from_data(
-                open(self.file_path, "rb").read(), path=self.web_path
-            )  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
@@ -391,9 +389,7 @@ class PyPDFium2Loader(BasePDFLoader):
     ) -> Iterator[Document]:
         """Lazy load given path as pages."""
         if self.web_path:
-            blob = Blob.from_data(
-                open(self.file_path, "rb").read(), path=self.web_path
-            )  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.parse(blob)
@@ -647,9 +643,7 @@ class PDFMinerLoader(BasePDFLoader):
     ) -> Iterator[Document]:
         """Lazily load documents."""
         if self.web_path:
-            blob = Blob.from_data(
-                open(self.file_path, "rb").read(), path=self.web_path
-            )  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
@@ -1106,9 +1100,7 @@ class PDFPlumberLoader(BasePDFLoader):
     ) -> Iterator[Document]:
         """Lazy load given path as pages."""
         if self.web_path:
-            blob = Blob.from_data(
-                open(self.file_path, "rb").read(), path=self.web_path
-            )  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
@@ -1261,9 +1253,7 @@ class AmazonTextractPDFLoader(BasePDFLoader):
         elif blob.mimetype in ["image/png", "image/jpeg"]:  # type: ignore[attr-defined]
             return 1
         else:
-            raise ValueError(
-                f"unsupported mime type: {blob.mimetype}"
-            )  # type: ignore[attr-defined]
+            raise ValueError(f"unsupported mime type: {blob.mimetype}")  # type: ignore[attr-defined]
 
 
 class DedocPDFLoader(DedocBaseLoader):
@@ -1533,9 +1523,7 @@ class ZeroxPDFLoader(BasePDFLoader):
         """
         """Lazy load given path as pages."""
         if self.web_path:
-            blob = Blob.from_data(
-                open(self.file_path, "rb").read(), path=self.web_path
-            )  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)

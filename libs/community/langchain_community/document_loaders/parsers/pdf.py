@@ -28,8 +28,6 @@ from urllib.parse import urlparse
 
 import numpy as np
 from langchain.prompts import Prompt
-from langchain_community.document_loaders.base import BaseBlobParser
-from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_core._api.deprecation import (
     deprecated,
 )
@@ -37,6 +35,9 @@ from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import BasePromptTemplate, PromptTemplate
+
+from langchain_community.document_loaders.base import BaseBlobParser
+from langchain_community.document_loaders.blob_loaders import Blob
 
 if TYPE_CHECKING:
     import pdfplumber
@@ -2371,9 +2372,7 @@ class AmazonTextractPDFParser(BaseBlobParser):
         the blob.data is taken
         """
 
-        url_parse_result = (
-            urlparse(str(blob.path)) if blob.path else None
-        )  # type: ignore[attr-defined]
+        url_parse_result = urlparse(str(blob.path)) if blob.path else None  # type: ignore[attr-defined]
         # Either call with S3 path (multi-page) or with bytes (single-page)
         if (
             url_parse_result
@@ -2430,9 +2429,7 @@ class DocumentIntelligenceParser(BaseBlobParser):
         self.client = client
         self.model = model
 
-    def _generate_docs(
-        self, blob: Blob, result: Any
-    ) -> Iterator[Document]:  # type: ignore[valid-type]
+    def _generate_docs(self, blob: Blob, result: Any) -> Iterator[Document]:  # type: ignore[valid-type]
         for p in result.pages:
             content = " ".join([line.content for line in p.lines])
 
