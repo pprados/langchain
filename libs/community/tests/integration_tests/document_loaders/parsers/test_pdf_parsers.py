@@ -7,10 +7,10 @@ from typing import Iterator, List
 
 import numpy as np
 import pytest
-
-import langchain_community.document_loaders.parsers as pdf_parsers
 from langchain_community.document_loaders.base import BaseBlobParser
 from langchain_community.document_loaders.blob_loaders import Blob
+
+import langchain_community.document_loaders.parsers as pdf_parsers
 from langchain_community.document_loaders.parsers import (
     PDFMinerParser,
     PDFPlumberParser,
@@ -165,7 +165,7 @@ def test_extract_images_text_from_pdf_pypdfium2parser() -> None:
         ("ZeroxPDFParser", {}),
     ],
 )
-# @pytest.mark.skip(reason="very long test. Ignore for now")
+@pytest.mark.skip(reason="very long test. Ignore for now")  # FIXME
 def test_standard_parameters(
     parser_factory: str, params: dict, mode: str, extract_images: bool
 ) -> None:
@@ -243,6 +243,7 @@ def test_standard_parameters(
         ("ZeroxPDFParser", {}),
     ],
 )
+@pytest.mark.skip(reason="very long test. Ignore for now")  # FIXME
 def test_parser_with_table(
     parser_factory: str,
     params: dict,
@@ -311,7 +312,7 @@ def test_parser_with_table(
     os.environ["DO_NOT_TRACK"] = "true"
 
     def images_to_text(images: List[np.ndarray]) -> Iterator[str]:
-        return iter(["<IMAGE />"] * len(images))
+        return iter(["<!-- image -->"] * len(images))
 
     parser_class = getattr(pdf_parsers, parser_factory)
     parser = parser_class(

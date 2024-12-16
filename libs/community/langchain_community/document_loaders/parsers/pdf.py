@@ -6,6 +6,7 @@ import html
 import io
 import logging
 import threading
+import warnings
 from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -27,6 +28,8 @@ from urllib.parse import urlparse
 
 import numpy as np
 from langchain.prompts import Prompt
+from langchain_community.document_loaders.base import BaseBlobParser
+from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_core._api.deprecation import (
     deprecated,
 )
@@ -34,9 +37,6 @@ from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import BasePromptTemplate, PromptTemplate
-
-from langchain_community.document_loaders.base import BaseBlobParser
-from langchain_community.document_loaders.blob_loaders import Blob
 
 if TYPE_CHECKING:
     import pdfplumber
@@ -80,10 +80,10 @@ def purge_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     Purge metadata from unwanted keys and normalize key names.
 
     Args:
-        metadata (dict[str, Any]): The original metadata dictionary.
+        metadata: The original metadata dictionary.
 
     Returns:
-        dict[str, Any]: The cleaned and normalized metadata dictionary.
+        The cleaned and normalized metadata dictionary.
     """
     new_metadata: dict[str, Any] = {}
     map_key = {
@@ -124,13 +124,12 @@ def __merge_text_and_extras(
     Insert extras such as image/table in a text between two paragraphs if possible.
 
     Args:
-        extras (list[str]): List of extra content (images/tables) to insert.
-        text_from_page (str): The text content from the page.
-        recurs (bool): Flag to indicate if the function should recurse.
+        extras: List of extra content (images/tables) to insert.
+        text_from_page: The text content from the page.
+        recurs: Flag to indicate if the function should recurse.
 
     Returns:
-        Optional[str]: The merged text with extras inserted, or None if no insertion
-        point is found.
+        The merged text with extras inserted, or None if no insertion point is found.
     """
     if extras:
         for delim in _delim:
@@ -164,11 +163,11 @@ def _merge_text_and_extras(extras: list[str], text_from_page: str) -> str:
     else at the end of the text.
 
     Args:
-        extras (list[str]): List of extra content (images/tables) to insert.
-        text_from_page (str): The text content from the page.
+        extras: List of extra content (images/tables) to insert.
+        text_from_page: The text content from the page.
 
     Returns:
-        str: The merged text with extras inserted.
+        The merged text with extras inserted.
     """
     all_text = __merge_text_and_extras(extras, text_from_page, True)
     if not all_text:
@@ -367,7 +366,7 @@ def convert_images_to_description(
             Text extracted from each image.
 
         Raises:
-            ImportError: If `rapidocr-onnxruntime` package is not installed.
+            ImportError: If `pillow` package is not installed.
         """
 
         try:
@@ -524,7 +523,6 @@ class PyPDFParser(ImagesPdfParser):
             methods to retrieve parsed documents with content and metadata.
 
         Raises:
-            ImportError: If the `pypdf` package is not installed.
             ValueError: If the `mode` is not "single" or "page".
         """
         super().__init__(extract_images, images_to_text)
@@ -544,6 +542,9 @@ class PyPDFParser(ImagesPdfParser):
 
         Args:
             blob: The blob to parse.
+
+        Raises:
+            ImportError: If the `pypdf` package is not found.
 
         Yield:
             An iterator over the parsed documents.
@@ -753,7 +754,6 @@ class PDFMinerParser(ImagesPdfParser):
             methods to retrieve parsed documents with content and metadata.
 
         Raises:
-            ImportError: If the `pdfminer.six` package is not installed.
             ValueError: If the `mode` is not "single" or "page".
 
         Warnings:
@@ -880,6 +880,9 @@ class PDFMinerParser(ImagesPdfParser):
         Args:
             blob: The blob to parse.
 
+        Raises:
+            ImportError: If the `pdfminer` package is not installed.
+
         Yield:
             An iterator over the parsed documents.
         """
@@ -899,7 +902,7 @@ class PDFMinerParser(ImagesPdfParser):
         except ImportError:
             raise ImportError(
                 "pdfminer package not found, please install it "
-                "with `pip install pdfminer`"
+                "with `pip install pdfminer.six`"
             )
         try:
             from PIL import Image
@@ -1076,7 +1079,6 @@ class PyMuPDFParser(ImagesPdfParser):
             methods to retrieve parsed documents with content and metadata.
 
         Raises:
-            ImportError: If the `pymupdf` package is not installed.
             ValueError: If the mode is not "single" or "page".
             ValueError: If the extract_tables format is not "markdown", "html",
             or "csv".
@@ -1100,7 +1102,10 @@ class PyMuPDFParser(ImagesPdfParser):
         Lazily parse the blob.
 
         Args:
-            blob: The blob to parse.
+            blob: The blob to parseA.
+
+        Raises:
+            ImportError: If the `pymupdf` package is not installed.
 
         Yield:
             An iterator over the parsed documents.
@@ -1392,7 +1397,6 @@ class PyPDFium2Parser(ImagesPdfParser):
             methods to retrieve parsed documents with content and metadata.
 
         Raises:
-            ImportError: If the `pypdfium2` package is not installed.
             ValueError: If the mode is not "single" or "page".
         """
         super().__init__(extract_images, images_to_text)
@@ -1401,12 +1405,20 @@ class PyPDFium2Parser(ImagesPdfParser):
         self.mode = mode
         self.pages_delimitor = pages_delimitor
         self.password = password
+        warnings.filterwarnings(
+            "ignore",
+            module=r"^pypdfium2._helpers.textpage$",
+            message=r"\s*get_text_range() call with default params will .*",
+        )
 
     def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
         """Lazily parse the blob.
 
         Args:
             blob: The blob to parse.
+
+        Raises:
+            ImportError: If the `pypdfium2` package is not installed.
 
         Yields:
             An iterator over the parsed documents.
@@ -1497,17 +1509,18 @@ class PyPDFium2Parser(ImagesPdfParser):
 # This is not in l8ine with the new convention, which requires the key to be in
 # lower case.
 class _PDFPlumberParserMetadata(dict[object, Any]):
+    _warning_keys: set[str] = set()
+
     def __init__(self, d: dict[str, Any]):
         super().__init__({k.lower(): v for k, v in d.items()})
         self._pdf_metadata_keys = set(d.keys())
-        self._warning_keys: set[str] = set()
 
     def _lower(self, k: object) -> object:
         if k in self._pdf_metadata_keys:
             lk = str(k).lower()
             if lk != k:
-                if k not in self._warning_keys:
-                    self._warning_keys.add(str(k))
+                if k not in _PDFPlumberParserMetadata._warning_keys:
+                    _PDFPlumberParserMetadata._warning_keys.add(str(k))
                     logger.warning(
                         'The key "%s" with uppercase is deprecated. '
                         "Update your code and vectorstore.",
@@ -1624,7 +1637,6 @@ class PDFPlumberParser(ImagesPdfParser):
             methods to retrieve parsed documents with content and metadata.
 
         Raises:
-            ImportError: If the `pdfplumber` package is not installed.
             ValueError: If the `mode` is not "single" or "page".
             ValueError: If the `extract_tables` is not "csv", "markdown" or "html".
 
@@ -1652,6 +1664,9 @@ class PDFPlumberParser(ImagesPdfParser):
 
         Args:
             blob: The blob to parse.
+
+        Raises:
+            ImportError: If the `pdfplumber` package is not installed.
 
         Yields:
             An iterator over the parsed documents.
@@ -2126,8 +2141,6 @@ class ZeroxPDFParser(BaseBlobParser):
         self.select_pages = select_pages
         self.zerox_kwargs = zerox_kwargs
 
-        import warnings
-
         warnings.filterwarnings(
             "ignore",
             module=r"^pyzerox.models.modellitellm$",
@@ -2358,7 +2371,9 @@ class AmazonTextractPDFParser(BaseBlobParser):
         the blob.data is taken
         """
 
-        url_parse_result = urlparse(str(blob.path)) if blob.path else None  # type: ignore[attr-defined]
+        url_parse_result = (
+            urlparse(str(blob.path)) if blob.path else None
+        )  # type: ignore[attr-defined]
         # Either call with S3 path (multi-page) or with bytes (single-page)
         if (
             url_parse_result
@@ -2415,7 +2430,9 @@ class DocumentIntelligenceParser(BaseBlobParser):
         self.client = client
         self.model = model
 
-    def _generate_docs(self, blob: Blob, result: Any) -> Iterator[Document]:  # type: ignore[valid-type]
+    def _generate_docs(
+        self, blob: Blob, result: Any
+    ) -> Iterator[Document]:  # type: ignore[valid-type]
         for p in result.pages:
             content = " ".join([line.content for line in p.lines])
 
