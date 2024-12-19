@@ -23,14 +23,13 @@ from typing import (
 from urllib.parse import urlparse
 
 import requests
-from langchain_community.document_loaders.base import BaseLoader
-from langchain_community.document_loaders.blob_loaders import Blob
-from langchain_community.document_loaders.dedoc import DedocBaseLoader
-from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
 from langchain_core._api.deprecation import deprecated
 from langchain_core.documents import Document
 from langchain_core.utils import get_from_dict_or_env
 
+from langchain_community.document_loaders.base import BaseLoader
+from langchain_community.document_loaders.blob_loaders import Blob
+from langchain_community.document_loaders.dedoc import DedocBaseLoader
 from langchain_community.document_loaders.parsers.pdf import (
     CONVERT_IMAGE_TO_TEXT,
     AmazonTextractPDFParser,
@@ -43,6 +42,7 @@ from langchain_community.document_loaders.parsers.pdf import (
     ZeroxPDFParser,
     _default_page_delimitor,
 )
+from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
 
 if TYPE_CHECKING:
     from textractor.data.text_linearization_config import TextLinearizationConfig

@@ -1,5 +1,4 @@
 """Module contains common parsers for PDFs."""
-
 import asyncio
 import base64
 import html
@@ -28,8 +27,6 @@ from urllib.parse import urlparse
 
 import numpy as np
 from langchain.prompts import Prompt
-from langchain_community.document_loaders.base import BaseBlobParser
-from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_core._api.deprecation import (
     deprecated,
 )
@@ -37,6 +34,9 @@ from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import BasePromptTemplate, PromptTemplate
+
+from langchain_community.document_loaders.base import BaseBlobParser
+from langchain_community.document_loaders.blob_loaders import Blob
 
 if TYPE_CHECKING:
     import pdfplumber
