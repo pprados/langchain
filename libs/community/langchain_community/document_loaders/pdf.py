@@ -1,4 +1,3 @@
-import copy
 import json
 import logging
 import os
@@ -24,7 +23,7 @@ from typing import (
 from urllib.parse import urlparse
 
 import requests
-from langchain_core._api.deprecation import deprecated, warn_deprecated
+from langchain_core._api.deprecation import deprecated
 from langchain_core.documents import Document
 from langchain_core.utils import get_from_dict_or_env
 
@@ -203,14 +202,12 @@ class PyPDFLoader(BasePDFLoader):
 
             loader = PyPDFLoader(
                 file_path = "./example_data/layout-parser-paper.pdf",
-                # password = None,
                 # headers = None
+                # password = None,
                 mode = "single",
                 pages_delimitor = "\n\f",
-                # extract_images = False,
-                # images_to_text = None,
-                # extraction_mode = "plain",
-                # extraction_kwargs = None,
+                # extract_images = True,
+                # images_to_text = convert_images_to_text_with_tesseract(),
             )
 
         Lazy load documents:
@@ -251,20 +248,20 @@ class PyPDFLoader(BasePDFLoader):
 
         Args:
             file_path: The path to the PDF file to be loaded.
-            password: Optional password for opening encrypted PDFs.
             headers: Optional headers to use for GET request to download a file from a
               web path.
-            extract_images: Whether to extract images from the PDF.
-            images_to_text: Function or callable to convert images to text during
-              extraction.
-            mode: The extraction mode, either "single" for the entire document or
-              "page" for page-wise extraction.
+            password: Optional password for opening encrypted PDFs.
+            mode: The extraction mode, either "single" for the entire document or "page"
+                for page-wise extraction.
             pages_delimitor: A string delimiter to separate pages in single-mode
-              extraction.
-            extraction_mode: “plain” for legacy functionality, “layout” for
-              experimental layout mode functionality
+                extraction.
+            extract_images: Whether to extract images from the PDF.
+            images_to_text: Optional function or callable to convert images to text
+                during extraction.
+            extraction_mode: “plain” for legacy functionality, “layout” for experimental
+                layout mode functionality
             extraction_kwargs: Optional additional parameters for the extraction
-              process.
+                process.
 
         Returns:
             This method does not directly return data. Use the `load`, `lazy_load` or
@@ -284,7 +281,11 @@ class PyPDFLoader(BasePDFLoader):
     def lazy_load(
         self,
     ) -> Iterator[Document]:
-        """Lazy load given path as pages."""
+        """
+        Lazy load given path as pages.
+        Insert image, if possible, between two paragraphs.
+        In this way, a paragraph can be continued on the next page.
+        """
         if self.web_path:
             blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
@@ -316,12 +317,12 @@ class PyPDFium2Loader(BasePDFLoader):
 
             loader = PyPDFium2Loader(
                 file_path = "./example_data/layout-parser-paper.pdf",
+                # headers = None
+                # password = None,
                 mode = "single",
                 pages_delimitor = "\n\f",
-                # password = None,
-                # extract_images = False,
-                # images_to_text = None,
-                # headers = None,
+                # extract_images = True,
+                # images_to_text = convert_images_to_text_with_tesseract(),
             )
 
         Lazy load documents:
@@ -360,16 +361,20 @@ class PyPDFium2Loader(BasePDFLoader):
 
         Args:
             file_path: The path to the PDF file to be loaded.
-            mode: The extraction mode, either "single" for extracting the entire
-                document as one chunk or "page" for page-wise extraction.
-            pages_delimitor: A string delimiter to separate pages when using
-              single-document extraction mode.
+            headers: Optional headers to use for GET request to download a file from a
+              web path.
             password: Optional password for opening encrypted PDFs.
+            mode: The extraction mode, either "single" for the entire document or "page"
+                for page-wise extraction.
+            pages_delimitor: A string delimiter to separate pages in single-mode
+                extraction.
             extract_images: Whether to extract images from the PDF.
-            images_to_text: Function or callable to convert images to text during
-              extraction.
-            headers: Optional headers to use for GET request to download a file from
-              a web path.
+            images_to_text: Optional function or callable to convert images to text
+                during extraction.
+            extraction_mode: “plain” for legacy functionality, “layout” for experimental
+                layout mode functionality
+            extraction_kwargs: Optional additional parameters for the extraction
+                process.
 
         Returns:
             This class does not directly return data. Use the `load`, `lazy_load` or
@@ -387,7 +392,11 @@ class PyPDFium2Loader(BasePDFLoader):
     def lazy_load(
         self,
     ) -> Iterator[Document]:
-        """Lazy load given path as pages."""
+        """
+        Lazy load given path as pages.
+        Insert image, if possible, between two paragraphs.
+        In this way, a paragraph can be continued on the next page.
+        """
         if self.web_path:
             blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
@@ -564,13 +573,12 @@ class PDFMinerLoader(BasePDFLoader):
 
             loader = PDFMinerLoader(
                 file_path = "./example_data/layout-parser-paper.pdf",
+                # headers = None
                 # password = None,
                 mode = "single",
                 pages_delimitor = "\n\f",
-                # extract_images = False,
-                # images_to_text = None,
-                # headers = None,
-                # concatenate_pages = None,
+                # extract_images = True,
+                # images_to_text = convert_images_to_text_with_tesseract(),
             )
 
         Lazy load documents:
@@ -609,18 +617,17 @@ class PDFMinerLoader(BasePDFLoader):
         """Initialize with a file path.
 
         Args:
-            file_path: The path to the PDF file to be loaded. Accepts both string and
-            `PurePath`.
+            file_path: The path to the PDF file to be loaded.
+            headers: Optional headers to use for GET request to download a file from a
+              web path.
             password: Optional password for opening encrypted PDFs.
-            mode: The extraction mode, either "single" for the entire document or
-                "page" for page-wise extraction.
+            mode: The extraction mode, either "single" for the entire document or "page"
+                for page-wise extraction.
             pages_delimitor: A string delimiter to separate pages in single-mode
                 extraction.
-            headers: Optional headers to use for GET request to download a file from a
-                web path.
-            extract_images: Whether to extract images from the PDF. Defaults to `False`.
-            images_to_text: Function or callable to convert images to text during
-                extraction.
+            extract_images: Whether to extract images from the PDF.
+            images_to_text: Optional function or callable to convert images to text
+                during extraction.
             concatenate_pages: Deprecated. If True, concatenate all PDF pages into one
                 a single document. Otherwise, return one document per page.
 
@@ -641,7 +648,11 @@ class PDFMinerLoader(BasePDFLoader):
     def lazy_load(
         self,
     ) -> Iterator[Document]:
-        """Lazily load documents."""
+        """
+        Lazy load given path as pages.
+        Insert image, if possible, between two paragraphs.
+        In this way, a paragraph can be continued on the next page.
+        """
         if self.web_path:
             blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
@@ -720,13 +731,13 @@ class PyMuPDFLoader(BasePDFLoader):
 
             loader = PyMuPDFLoader(
                 file_path = "./example_data/layout-parser-paper.pdf",
+                # headers = None
                 # password = None,
-                mode = "page",
+                mode = "single",
                 pages_delimitor = "\n\f",
-                # extract_images = False,
-                # images_to_text = None,
-                # extract_tables = None,
-                # headers = None,
+                # extract_images = True,
+                # images_to_text = convert_images_to_text_with_tesseract(),
+                # extract_tables = "markdown",
                 # extract_tables_settings = None,
             )
 
@@ -769,20 +780,20 @@ class PyMuPDFLoader(BasePDFLoader):
 
         Args:
             file_path: The path to the PDF file to be loaded.
+            headers: Optional headers to use for GET request to download a file from a
+              web path.
             password: Optional password for opening encrypted PDFs.
-            mode: The extraction mode, either "single" for the entire document or
-                "page" for page-wise extraction.
+            mode: The extraction mode, either "single" for the entire document or "page"
+                for page-wise extraction.
             pages_delimitor: A string delimiter to separate pages in single-mode
                 extraction.
             extract_images: Whether to extract images from the PDF.
-            images_to_text: Function or callable to convert images to text during
-                extraction.
+            images_to_text: Optional function or callable to convert images to text
+                during extraction.
             extract_tables: Whether to extract tables in a specific format, such as
                 "csv", "markdown", or "html".
             extract_tables_settings: Optional dictionary of settings for customizing
                 table extraction.
-            headers: Optional headers to use for GET request to download a file from a
-                web path.
             **kwargs: Additional keyword arguments for customizing text extraction
                 behavior.
 
@@ -807,20 +818,13 @@ class PyMuPDFLoader(BasePDFLoader):
             extract_tables_settings=extract_tables_settings,
         )
 
-    def lazy_load(self, **kwargs: Any) -> Iterator[Document]:
-        """Lazily load documents."""
+    def lazy_load(self) -> Iterator[Document]:
+        """
+        Lazy load given path as pages.
+        Insert image, if possible, between two paragraphs.
+        In this way, a paragraph can be continued on the next page.
+        """
         parser = self.parser
-        if kwargs:
-            warn_deprecated(
-                since="0.2.17",
-                removal="0.3",
-                message=f"Received runtime arguments {kwargs}. Passing runtime args "
-                f"to `load` is deprecated. Please pass arguments during "
-                f"initialization instead.",
-            )
-            parser = copy.deepcopy(self.parser)
-            parser.text_kwargs.update(kwargs)
-
         if self.web_path:
             blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
@@ -982,12 +986,9 @@ class PDFPlumberLoader(BasePDFLoader):
     """Load and parse a PDF file using 'pdfplumber' library.
 
     This class provides methods to load and parse PDF documents, supporting various
-        configurations such as handling
-    password-protected files, extracting tables, extracting images, and defining
-        extraction mode.
-    It integrates the `pdfplumber` library for PDF processing and offers both
-        synchronous and asynchronous document
-    loading.
+    configurations such as handling password-protected files, extracting images, and
+    defining extraction mode. It integrates the `pdfplumber` library for PDF processing
+    and offers both synchronous and asynchronous document loading.
 
     Examples:
         Setup:
@@ -1004,16 +1005,16 @@ class PDFPlumberLoader(BasePDFLoader):
 
             loader = PDFPlumberLoader(
                 file_path = "./example_data/layout-parser-paper.pdf",
-                # text_kwargs = {"use_text_flow": False, "keep_blank_chars": False},
-                # dedupe = False,
-                # headers = None,
+                # headers = None
                 # password = None,
-                mode = "page",
-                # extract_images = False,
-                # images_to_text = None,
+                mode = "single",
                 pages_delimitor = "\n\f",
+                # extract_images = True,
+                # images_to_text = convert_images_to_text_with_tesseract(),
                 # extract_tables = None,
                 # extract_tables_settings = None,
+                # text_kwargs = {"use_text_flow": False, "keep_blank_chars": False},
+                # dedupe = False,
             )
 
         Lazy load documents:
@@ -1056,23 +1057,22 @@ class PDFPlumberLoader(BasePDFLoader):
 
         Args:
             file_path: The path to the PDF file to be loaded.
+            headers: Optional headers to use for GET request to download a file from a
+              web path.
+            password: Optional password for opening encrypted PDFs.
+            mode: The extraction mode, either "single" for the entire document or "page"
+                for page-wise extraction.
+            pages_delimitor: A string delimiter to separate pages in single-mode
+                extraction.
+            extract_images: Whether to extract images from the PDF.
+            images_to_text: Optional function or callable to convert images to text
+                during extraction.
+            extract_tables: Whether to extract tables in a specific format, such as
+                "csv", "markdown", or "html".
+            extract_tables_settings: Optional dictionary of settings for customizing
+                table extraction.
             text_kwargs: Keyword arguments to pass to ``pdfplumber.Page.extract_text()``
             dedupe:  Avoiding the error of duplicate characters if `dedupe=True`
-            headers: Optional headers to use for GET request to download a file from a
-            web path.
-            password: Optional password for opening encrypted PDFs.
-            mode: The extraction mode, either "single" for extracting the entire
-                document as one chunk or "page" for page-wise extraction.
-            extract_images: Whether to extract images from the PDF
-            images_to_text: Optional function or callable to convert images to text
-            during extraction.
-            pages_delimitor: A string delimiter to separate pages in single-mode
-            extraction.
-            extract_tables: Whether to extract images from the PDF in a specific format,
-            such as "csv", "markdown",
-                            or "html".
-            extract_tables_settings: Optional dictionary of settings for customizing
-            table extraction.
 
         Returns:
             This method does not directly return data. Use the `load`, `lazy_load`,
@@ -1098,7 +1098,11 @@ class PDFPlumberLoader(BasePDFLoader):
     def lazy_load(
         self,
     ) -> Iterator[Document]:
-        """Lazy load given path as pages."""
+        """
+        Lazy load given path as pages.
+        Insert image, if possible, between two paragraphs.
+        In this way, a paragraph can be continued on the next page.
+        """
         if self.web_path:
             blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
@@ -1407,9 +1411,14 @@ class DocumentIntelligenceLoader(BasePDFLoader):
 
 
 class ZeroxPDFLoader(BasePDFLoader):
-    """
-    Document loader utilizing Zerox library:
+    """Load and parse a PDF file using 'py-zerox' library.
     https://github.com/getomni-ai/zerox
+
+    This class provides methods to load and parse PDF documents, supporting various
+    configurations such as handling password-protected files, extracting tables,
+    extracting images, and defining extraction mode. It integrates the `py-zerox`
+    library for PDF processing and offers both synchronous and asynchronous document
+    loading.
 
     Zerox converts PDF document to serties of images (page-wise) and
     uses vision-capable LLM model to generate Markdown representation.
@@ -1421,6 +1430,51 @@ class ZeroxPDFLoader(BasePDFLoader):
         import nest_asyncio
         nest_asyncio.apply()
     ```
+
+    Examples:
+        Setup:
+
+        .. code-block:: bash
+
+            pip install -U langchain-community pymupdf
+
+        Instantiate the loader:
+
+        .. code-block:: python
+
+            from langchain_community.document_loaders import ZeroxPDFLoader
+
+            loader = ZeroxPDFLoader(
+                file_path = "./example_data/layout-parser-paper.pdf",
+                # headers = None
+                # password = None,
+                mode = "single",
+                pages_delimitor = "\n\f",
+                # extract_images = True,
+                # images_to_text = convert_images_to_text_with_tesseract(),
+                # extract_tables = "markdown",
+                # extract_tables_settings = None,
+            )
+
+        Lazy load documents:
+
+        .. code-block:: python
+
+            docs = []
+            docs_lazy = loader.lazy_load()
+
+            for doc in docs_lazy:
+                docs.append(doc)
+            print(docs[0].page_content[:100])
+            print(docs[0].metadata)
+
+        Load documents asynchronously:
+
+        .. code-block:: python
+
+            docs = await loader.aload()
+            print(docs[0].page_content[:100])
+            print(docs[0].metadata)
     """
 
     def __init__(
@@ -1448,31 +1502,26 @@ class ZeroxPDFLoader(BasePDFLoader):
         any given model.
 
         Args:
-            file_path:
-                Path or url of the pdf file
-
-            password: Optional password for opening encrypted PDFs.
+            file_path: The path to the PDF file to be loaded.
             headers: Optional headers to use for GET request to download a file from a
               web path.
-            extract_images: Whether to extract images from the PDF.
-            images_to_text: Function or callable to convert images to text during
-              extraction.
-            mode: The extraction mode, either "single" for the entire document or
-              "page" for page-wise extraction.
+            password: Optional password for opening encrypted PDFs.
+            mode: The extraction mode, either "single" for the entire document or "page"
+                for page-wise extraction.
             pages_delimitor: A string delimiter to separate pages in single-mode
-              extraction.
-            model:
-                Vision capable model to use. Defaults to "gpt-4o-mini".
-                Hosted models are passed in format "<provider>/<model>"
-                Examples: "azure/gpt-4o-mini", "vertex_ai/gemini-1.5-flash-001"
-                          See more details in zerox documentation.
+                extraction.
+            extract_images: Whether to extract images from the PDF.
+            images_to_text: Optional function or callable to convert images to text
+                during extraction.
+            extract_tables: Whether to extract tables in a specific format, such as
+                "csv", "markdown", or "html".
+            extract_tables_settings: Optional dictionary of settings for customizing
+                table extraction.
             cleanup:
                 Whether to cleanup the temporary files after processing, defaults
                 to True
             concurrency:
                 The number of concurrent processes to run, defaults to 10
-            file_path:
-                The path or URL to the PDF file to process.
             maintain_format:
                 Whether to maintain the format from the previous page, defaults to False
             model:
