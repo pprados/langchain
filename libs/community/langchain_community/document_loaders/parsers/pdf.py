@@ -1,4 +1,5 @@
 """Module contains common parsers for PDFs."""
+
 import asyncio
 import base64
 import html
@@ -2373,9 +2374,7 @@ class AmazonTextractPDFParser(BaseBlobParser):
         the blob.data is taken
         """
 
-        url_parse_result = (
-            urlparse(str(blob.path)) if blob.path else None
-        )  # type: ignore[attr-defined]
+        url_parse_result = urlparse(str(blob.path)) if blob.path else None  # type: ignore[attr-defined]
         # Either call with S3 path (multi-page) or with bytes (single-page)
         if (
             url_parse_result
@@ -2432,9 +2431,7 @@ class DocumentIntelligenceParser(BaseBlobParser):
         self.client = client
         self.model = model
 
-    def _generate_docs(
-        self, blob: Blob, result: Any
-    ) -> Iterator[Document]:  # type: ignore[valid-type]
+    def _generate_docs(self, blob: Blob, result: Any) -> Iterator[Document]:  # type: ignore[valid-type]
         for p in result.pages:
             content = " ".join([line.content for line in p.lines])
 

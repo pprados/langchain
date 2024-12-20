@@ -287,9 +287,7 @@ class PyPDFLoader(BasePDFLoader):
         In this way, a paragraph can be continued on the next page.
         """
         if self.web_path:
-            blob = Blob.from_data(
-                open(self.file_path, "rb").read(), path=self.web_path
-            )  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
@@ -400,9 +398,7 @@ class PyPDFium2Loader(BasePDFLoader):
         In this way, a paragraph can be continued on the next page.
         """
         if self.web_path:
-            blob = Blob.from_data(
-                open(self.file_path, "rb").read(), path=self.web_path
-            )  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.parse(blob)
@@ -658,9 +654,7 @@ class PDFMinerLoader(BasePDFLoader):
         In this way, a paragraph can be continued on the next page.
         """
         if self.web_path:
-            blob = Blob.from_data(
-                open(self.file_path, "rb").read(), path=self.web_path
-            )  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
@@ -1110,9 +1104,7 @@ class PDFPlumberLoader(BasePDFLoader):
         In this way, a paragraph can be continued on the next page.
         """
         if self.web_path:
-            blob = Blob.from_data(
-                open(self.file_path, "rb").read(), path=self.web_path
-            )  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
@@ -1265,9 +1257,7 @@ class AmazonTextractPDFLoader(BasePDFLoader):
         elif blob.mimetype in ["image/png", "image/jpeg"]:  # type: ignore[attr-defined]
             return 1
         else:
-            raise ValueError(
-                f"unsupported mime type: {blob.mimetype}"
-            )  # type: ignore[attr-defined]
+            raise ValueError(f"unsupported mime type: {blob.mimetype}")  # type: ignore[attr-defined]
 
 
 class DedocPDFLoader(DedocBaseLoader):
@@ -1582,9 +1572,7 @@ class ZeroxPDFLoader(BasePDFLoader):
         """
         """Lazy load given path as pages."""
         if self.web_path:
-            blob = Blob.from_data(
-                open(self.file_path, "rb").read(), path=self.web_path
-            )  # type: ignore[attr-defined]
+            blob = Blob.from_data(open(self.file_path, "rb").read(), path=self.web_path)  # type: ignore[attr-defined]
         else:
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
