@@ -87,8 +87,8 @@ if TYPE_CHECKING:
     from langchain_community.document_loaders.blob_loaders import (
         Blob,
         BlobLoader,
-        FileSystemBlobLoader,
         CloudBlobLoader,
+        FileSystemBlobLoader,
         YoutubeAudioLoader,
     )
     from langchain_community.document_loaders.blockchain import (
