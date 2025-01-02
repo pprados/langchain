@@ -169,6 +169,7 @@ def test_amazontextract_loader_failures() -> None:
         ("PyMuPDFLoader", {}),
         ("PyPDFLoader", {}),
         ("PyPDFium2Loader", {}),
+        ("ZeroxPDFLoader", {}),
     ],
 )
 def test_standard_parameters(
