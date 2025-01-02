@@ -10,7 +10,6 @@ import langchain_community.document_loaders.parsers as pdf_parsers
 from langchain_community.document_loaders.base import BaseBlobParser
 from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_community.document_loaders.parsers.pdf import (
-    PyPDFium2Parser,
     _merge_text_and_extras,
 )
 
@@ -85,6 +84,7 @@ def test_pypdfium2_parser() -> None:
     "parser_factory,require,params",
     [
         ("PDFMinerParser", "pdfminer", {"splits_by_page": False}),
+        ("PDFPlumberParser", "pdfplumber", {}),
         ("PyMuPDFParser", "pymupdf", {}),
         ("PyPDFParser", "pypdf", {}),
     ],
