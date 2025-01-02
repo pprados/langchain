@@ -1438,47 +1438,6 @@ class PyPDFium2Parser(ImagesPdfParser):
         )
 
 
-# The legacy PDFPlumberParser use key with upper case.
-# This is not aligned with the new convention, which requires the key to be in
-# lower case.
-class _PDFPlumberParserMetadata(dict[object, Any]):
-    _warning_keys: set[str] = set()
-
-    def __init__(self, d: dict[str, Any]):
-        super().__init__({k.lower(): v for k, v in d.items()})
-        self._pdf_metadata_keys = set(d.keys())
-
-    def _lower(self, k: object) -> object:
-        if k in self._pdf_metadata_keys:
-            lk = str(k).lower()
-            if lk != k:
-                if k not in _PDFPlumberParserMetadata._warning_keys:
-                    _PDFPlumberParserMetadata._warning_keys.add(str(k))
-                    logger.warning(
-                        'The key "%s" with uppercase is deprecated. '
-                        "Update your code and vectorstore.",
-                        k,
-                    )
-            return lk
-        else:
-            return k
-
-    def __contains__(self, k: object) -> bool:
-        return super().__contains__(self._lower(k))
-
-    def __delitem__(self, k: object) -> None:
-        super().__delitem__(self._lower(k))
-
-    def __getitem__(self, k: object) -> Any:
-        return super().__getitem__(self._lower(k))
-
-    def get(self, k: object, default: Any = None) -> Any:
-        return super().get(self._lower(k), default)
-
-    def __setitem__(self, k: object, v: Any) -> None:
-        super().__setitem__(self._lower(k), v)
-
-
 class PDFPlumberParser(ImagesPdfParser):
     """Parse a blob from a PDF using `pdfplumber` library.
 
