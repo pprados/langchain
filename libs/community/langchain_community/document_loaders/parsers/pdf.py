@@ -29,6 +29,9 @@ from typing import (
 from urllib.parse import urlparse
 
 import numpy as np
+from langchain_core._api.deprecation import (
+    deprecated,
+)
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
@@ -175,6 +178,7 @@ def _merge_text_and_extras(extras: list[str], text_from_page: str) -> str:
     return all_text
 
 
+@deprecated(since="3.0.0", alternative="Use parameter images_to_text")
 def extract_from_images_with_rapidocr(
     images: Sequence[Union[Iterable[np.ndarray], bytes]],
 ) -> str:
@@ -2275,6 +2279,17 @@ class AmazonTextractPDFParser(BaseBlobParser):
             )
 
 
+@deprecated(
+    since="0.0.7",
+    removal="0.4.0",
+    message="langchain_community.document_loaders.parsers.pdf.DocumentIntelligenceParser"
+    "and langchain_community.document_loaders.pdf.DocumentIntelligenceLoader"
+    " are deprecated. Please upgrade to "
+    "langchain_community.document_loaders.DocumentIntelligenceLoader "
+    "for any file parsing purpose using Azure Document Intelligence "
+    "service.",
+    alternative_import="langchain_community.document_loaders.DocumentIntelligenceLoader",
+)
 class DocumentIntelligenceParser(BaseBlobParser):
     """Loads a PDF with Azure Document Intelligence
     (formerly Form Recognizer) and chunks at character level."""

@@ -23,6 +23,7 @@ from typing import (
 from urllib.parse import urlparse
 
 import requests
+from langchain_core._api.deprecation import deprecated
 from langchain_core.documents import Document
 from langchain_core.utils import get_from_dict_or_env
 
@@ -49,6 +50,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__file__)
 
 
+@deprecated(
+    since="0.3.13",
+    removal="1.0",
+    alternative_import="langchain_unstructured.UnstructuredPDFLoader",
+)
 class UnstructuredPDFLoader(UnstructuredFileLoader):
     """Load `PDF` files using `Unstructured`.
 
@@ -159,6 +165,11 @@ class BasePDFLoader(BaseLoader, ABC):
         return self.web_path if self.web_path is not None else self.file_path
 
 
+@deprecated(
+    since="0.3.13",
+    removal="1.0",
+    alternative_import="langchain_unstructured.UnstructuredPDFLoader",
+)
 class OnlinePDFLoader(BasePDFLoader):
     """Load online `PDF`."""
 
@@ -309,6 +320,11 @@ class PyPDFium2Loader(BasePDFLoader):
         yield from self.parser.parse(blob)
 
 
+@deprecated(
+    since="0.3.13",
+    removal="1.0",
+    alternative="langchain_community.document_loaders.generic.GenericLoader",
+)
 class PyPDFDirectoryLoader(BaseLoader):
     """Load and parse a directory of PDF files using 'pypdf' library.
 
@@ -1487,4 +1503,10 @@ class ZeroxPDFLoader(BasePDFLoader):
 
 
 # Legacy: only for backwards compatibility. Use PyPDFLoader instead
-PagedPDFSplitter = PyPDFLoader
+@deprecated(
+    since="0.0.30",
+    removal="1.0",
+    alternative="PyPDFLoader",
+)
+class PagedPDFSplitter(PyPDFLoader):
+    pass
