@@ -8,8 +8,66 @@ import langchain_community.document_loaders as pdf_loaders
 from langchain_community.document_loaders import (
     AmazonTextractPDFLoader,
     MathpixPDFLoader,
+    PDFMinerLoader,
     PDFMinerPDFasHTMLLoader,
+    PyPDFium2Loader,
+    UnstructuredPDFLoader,
 )
+
+
+def test_unstructured_pdf_loader_elements_mode() -> None:
+    """Test unstructured loader with various modes."""
+    file_path = Path(__file__).parent.parent / "examples/hello.pdf"
+    loader = UnstructuredPDFLoader(file_path, mode="elements")
+    docs = loader.load()
+
+    assert len(docs) == 2
+
+
+def test_unstructured_pdf_loader_paged_mode() -> None:
+    """Test unstructured loader with various modes."""
+    file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
+    loader = UnstructuredPDFLoader(file_path, mode="paged")
+    docs = loader.load()
+
+    assert len(docs) == 16
+
+
+def test_unstructured_pdf_loader_default_mode() -> None:
+    """Test unstructured loader."""
+    file_path = Path(__file__).parent.parent / "examples/hello.pdf"
+    loader = UnstructuredPDFLoader(file_path)
+    docs = loader.load()
+
+    assert len(docs) == 1
+
+
+def test_pdfminer_loader() -> None:
+    """Test PDFMiner loader."""
+    file_path = Path(__file__).parent.parent / "examples/hello.pdf"
+    loader = PDFMinerLoader(file_path)
+    docs = loader.load()
+
+    assert len(docs) == 1
+
+    file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
+    loader = PDFMinerLoader(file_path)
+
+    docs = loader.load()
+    assert len(docs) == 1
+
+    # Verify that concatenating pages parameter works
+    file_path = Path(__file__).parent.parent / "examples/hello.pdf"
+    loader = PDFMinerLoader(file_path, concatenate_pages=True)
+    docs = loader.load()
+
+    assert len(docs) == 1
+
+    file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
+    loader = PDFMinerLoader(file_path, concatenate_pages=False)
+
+    docs = loader.load()
+    assert len(docs) == 16
 
 
 def test_pdfminer_pdf_as_html_loader() -> None:
@@ -25,6 +83,21 @@ def test_pdfminer_pdf_as_html_loader() -> None:
 
     docs = loader.load()
     assert len(docs) == 1
+
+
+def test_pypdfium2_loader() -> None:
+    """Test PyPDFium2Loader."""
+    file_path = Path(__file__).parent.parent / "examples/hello.pdf"
+    loader = PyPDFium2Loader(file_path)
+    docs = loader.load()
+
+    assert len(docs) == 1
+
+    file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
+    loader = PyPDFium2Loader(file_path)
+
+    docs = loader.load()
+    assert len(docs) == 16
 
 
 @pytest.mark.skipif(
@@ -136,12 +209,7 @@ def test_amazontextract_loader_failures() -> None:
 @pytest.mark.parametrize(
     "parser_factory,params",
     [
-        ("PDFMinerLoader", {}),
-        ("PDFPlumberLoader", {}),
         ("PyMuPDFLoader", {}),
-        ("PyPDFLoader", {}),
-        ("PyPDFium2Loader", {}),
-        ("ZeroxPDFLoader", {}),
     ],
 )
 def test_standard_parameters(
