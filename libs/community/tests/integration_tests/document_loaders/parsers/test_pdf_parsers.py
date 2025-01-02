@@ -66,7 +66,7 @@ def _assert_with_parser(parser: BaseBlobParser, splits_by_page: bool = True) -> 
     assert metadata["source"] == str(LAYOUT_PARSER_PAPER_PDF)
 
     if splits_by_page:
-        assert metadata["page"] == 0
+        assert int(metadata["page"]) == 0
 
 
 def _assert_with_duplicate_parser(parser: BaseBlobParser, dedupe: bool = False) -> None:
@@ -106,6 +106,7 @@ def _assert_with_duplicate_parser(parser: BaseBlobParser, dedupe: bool = False) 
         ("PyPDFParser", {"extraction_mode": "plain"}),
         ("PyPDFParser", {"extraction_mode": "layout"}),
         ("PyPDFium2Parser", {}),
+        ("ZeroxPDFParser", {}),
     ],
 )
 def test_standard_parameters(
@@ -182,6 +183,7 @@ def test_standard_parameters(
     [
         ("PDFPlumberParser", {}),
         ("PyMuPDFParser", {}),
+        ("ZeroxPDFParser", {}),
     ],
 )
 def test_parser_with_table(
