@@ -73,13 +73,6 @@ def _assert_with_parser(parser: BaseBlobParser, *, splits_by_page: bool = True) 
         assert int(metadata["page"]) == 0
 
 
-@pytest.mark.requires("pypdfium2")
-def test_pypdfium2_parser() -> None:
-    """Test PyPDFium2 parser."""
-    # Does not follow defaults to split by page.
-    _assert_with_parser(PyPDFium2Parser())
-
-
 @pytest.mark.parametrize(
     "parser_factory,require,params",
     [
@@ -87,6 +80,8 @@ def test_pypdfium2_parser() -> None:
         ("PDFPlumberParser", "pdfplumber", {}),
         ("PyMuPDFParser", "pymupdf", {}),
         ("PyPDFParser", "pypdf", {}),
+        ("PyPDFium2Parser", "pypdfium2", {}),
+        # ("ZeroxPDFParser", "py-zerox",{}),  # Online only
     ],
 )
 def test_parsers(
