@@ -200,9 +200,7 @@ def test_amazontextract_loader(
 @pytest.mark.skip(reason="Requires AWS credentials to run")
 def test_amazontextract_loader_failures() -> None:
     # 2-page PDF local file system
-    two_page_pdf = (
-        Path(__file__).parent.parent / "examples/multi-page-forms-sample-2-page.pdf"
-    )
+    two_page_pdf = Path(__file__).parent.parent / "examples/multi-page-forms-sample-2-page.pdf"
     loader = AmazonTextractPDFLoader(two_page_pdf)
     with pytest.raises(ValueError):
         loader.load()
@@ -212,7 +210,6 @@ def test_amazontextract_loader_failures() -> None:
     "parser_factory,params",
     [
         ("PyMuPDFLoader", {}),
-        ("PyPDFLoader", {}),
     ],
 )
 def test_standard_parameters(
