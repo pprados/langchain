@@ -56,21 +56,6 @@ def test_pdfminer_pdf_as_html_loader() -> None:
     assert len(docs) == 1
 
 
-def test_pypdfium2_loader() -> None:
-    """Test PyPDFium2Loader."""
-    file_path = Path(__file__).parent.parent / "examples/hello.pdf"
-    loader = PyPDFium2Loader(file_path)
-    docs = loader.load()
-
-    assert len(docs) == 1
-
-    file_path = Path(__file__).parent.parent / "examples/layout-parser-paper.pdf"
-    loader = PyPDFium2Loader(file_path)
-
-    docs = loader.load()
-    assert len(docs) == 16
-
-
 @pytest.mark.skipif(
     not os.environ.get("MATHPIX_API_KEY"), reason="Mathpix API key not found"
 )
@@ -183,7 +168,10 @@ def test_amazontextract_loader_failures() -> None:
     "parser_factory,params",
     [
         ("PDFMinerLoader", {}),
+        ("PDFPlumberLoader", {}),
         ("PyMuPDFLoader", {}),
+        ("PyPDFLoader", {}),
+        ("PyPDFium2Loader", {}),
     ],
 )
 def test_standard_parameters(
