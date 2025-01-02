@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import html
 import io
@@ -11,7 +10,7 @@ import threading
 import warnings
 from datetime import datetime
 from pathlib import Path
-from tempfile import NamedTemporaryFile, TemporaryDirectory
+from tempfile import TemporaryDirectory
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -1118,183 +1117,42 @@ class PyMuPDFParser(ImagesPdfParser):
         return ""
 
 
-class PyPDFium2Parser(ImagesPdfParser):
-    """Parse a blob from a PDF using `PyPDFium2` library.
+class PyPDFium2Parser(BaseBlobParser):
+    """Parse `PDF` with `PyPDFium2`."""
 
-    This class provides methods to parse a blob from a PDF document, supporting various
-    configurations such as handling password-protected PDFs, extracting images, and
-    defining extraction mode.
-    It integrates the 'PyPDFium2' library for PDF processing and offers synchronous
-    blob parsing.
-
-    Examples:
-        Setup:
-
-        .. code-block:: bash
-
-            pip install -U langchain-community pypdfium2
-
-        Load a blob from a PDF file:
-
-        .. code-block:: python
-
-            from langchain_core.documents.base import Blob
-
-            blob = Blob.from_path("./example_data/layout-parser-paper.pdf")
-
-        Instantiate the parser:
-
-        .. code-block:: python
-
-            from langchain_community.document_loaders.parsers import PyPDFium2Parser
-
-            parser = PyPDFium2Parser(
-                # password=None,
-                mode="page",
-                pages_delimitor="\n\f",
-                # extract_images = True,
-                # images_to_text = convert_images_to_text_with_tesseract(),
-            )
-
-        Lazily parse the blob:
-
-        .. code-block:: python
-
-            docs = []
-            docs_lazy = parser.lazy_parse(blob)
-
-            for doc in docs_lazy:
-                docs.append(doc)
-            print(docs[0].page_content[:100])
-            print(docs[0].metadata)
-    """
-
-    # PyPDFium2 is not thread safe.
-    # See https://pypdfium2.readthedocs.io/en/stable/python_api.html#thread-incompatibility
-    _lock = threading.Lock()
-    warnings.filterwarnings(
-        "ignore",
-        module=r"^pypdfium2._helpers.textpage$",
-        message="get_text_range\\(\\) call with default params will be .*",
-    )
-
-    def __init__(
-        self,
-        extract_images: bool = False,
-        *,
-        password: Optional[str] = None,
-        mode: Literal["single", "page"] = "page",
-        pages_delimitor: str = _default_page_delimitor,
-        images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-    ) -> None:
-        """Initialize a parser based on PyPDFium2.
-
-        Args:
-            password: Optional password for opening encrypted PDFs.
-            mode: The extraction mode, either "single" for the entire document or "page"
-                for page-wise extraction.
-            pages_delimitor: A string delimiter to separate pages in single-mode
-                extraction.
-            extract_images: Whether to extract images from the PDF.
-            images_to_text: Optional function or callable to convert images to text
-                during extraction.
-
-        Returns:
-            This method does not directly return data. Use the `parse` or `lazy_parse`
-            methods to retrieve parsed documents with content and metadata.
-
-        Raises:
-            ValueError: If the mode is not "single" or "page".
-        """
-        super().__init__(extract_images, images_to_text)
-        if mode not in ["single", "page"]:
-            raise ValueError("mode must be single or page")
-        self.mode = mode
-        self.pages_delimitor = pages_delimitor
-        self.password = password
-
-    def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
-        """
-        Lazily parse the blob.
-        Insert image, if possible, between two paragraphs.
-        In this way, a paragraph can be continued on the next page.
-
-        Args:
-            blob: The blob to parse.
-
-        Raises:
-            ImportError: If the `pypdf` package is not found.
-
-        Yield:
-            An iterator over the parsed documents.
-        """
+    def __init__(self, extract_images: bool = False) -> None:
+        """Initialize the parser."""
         try:
-            import pypdfium2
+            import pypdfium2  # noqa:F401
         except ImportError:
             raise ImportError(
                 "pypdfium2 package not found, please install it with"
                 " `pip install pypdfium2`"
             )
+        self.extract_images = extract_images
+
+    def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
+        """Lazily parse the blob."""
+        import pypdfium2
 
         # pypdfium2 is really finicky with respect to closing things,
         # if done incorrectly creates seg faults.
-        with PyPDFium2Parser._lock:
-            with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
-                pdf_reader = None
-                try:
-                    pdf_reader = pypdfium2.PdfDocument(
-                        file_path, password=self.password, autoclose=True
-                    )
-                    full_content = []
-
-                    doc_metadata = purge_metadata(pdf_reader.get_metadata_dict())
-                    doc_metadata["source"] = blob.source
-                    doc_metadata["total_pages"] = len(pdf_reader)
-
-                    for page_number, page in enumerate(pdf_reader):
-                        text_page = page.get_textpage()
-                        text_from_page = "\n".join(
-                            text_page.get_text_range().splitlines()
-                        )  # Replace \r\n
-                        text_page.close()
-                        image_from_page = self._extract_images_from_page(page)
-                        all_text = _merge_text_and_extras(
-                            [image_from_page], text_from_page
-                        ).strip()
-                        page.close()
-
-                        if self.mode == "page":
-                            # For legacy compatibility, add the last '\n'
-                            if not all_text.endswith("\n"):
-                                all_text += "\n"
-                            yield Document(
-                                page_content=all_text,
-                                metadata={
-                                    **doc_metadata,
-                                    "page": page_number,
-                                },
-                            )
-                        else:
-                            full_content.append(all_text)
-
-                    if self.mode == "single":
-                        yield Document(
-                            page_content=self.pages_delimitor.join(full_content),
-                            metadata=doc_metadata,
-                        )
-                finally:
-                    if pdf_reader:
-                        pdf_reader.close()
+        with blob.as_bytes_io() as file_path:  # type: ignore[attr-defined]
+            pdf_reader = pypdfium2.PdfDocument(file_path, autoclose=True)
+            try:
+                for page_number, page in enumerate(pdf_reader):
+                    text_page = page.get_textpage()
+                    content = text_page.get_text_range()
+                    text_page.close()
+                    content += "\n" + self._extract_images_from_page(page)
+                    page.close()
+                    metadata = {"source": blob.source, "page": page_number}  # type: ignore[attr-defined]
+                    yield Document(page_content=content, metadata=metadata)
+            finally:
+                pdf_reader.close()
 
     def _extract_images_from_page(self, page: pypdfium2._helpers.page.PdfPage) -> str:
-        """Extract images from a PDF page and get the text using images_to_text.
-
-        Args:
-            page: The page object from which to extract images.
-
-        Returns:
-            str: The extracted text from the images on the page.
-        """
+        """Extract images from page and get the text with RapidOCR."""
         if not self.extract_images:
             return ""
 
@@ -1302,12 +1160,8 @@ class PyPDFium2Parser(ImagesPdfParser):
 
         images = list(page.get_objects(filter=(pdfium_c.FPDF_PAGEOBJ_IMAGE,)))
 
-        numpy_images = [x.get_bitmap().to_numpy() for x in images]
-        for image in images:
-            image.close()
-        return _format_image_str.format(
-            image_text=_join_images.join(self.convert_image_to_text(numpy_images))
-        )
+        images = list(map(lambda x: x.get_bitmap().to_numpy(), images))
+        return extract_from_images_with_rapidocr(images)
 
 
 # The legacy PDFPlumberParser use key with upper case.
@@ -1837,313 +1691,6 @@ class PDFPlumberParser(ImagesPdfParser):
             line += "\n"
             output += line
         return output + "\n"
-
-
-class ZeroxPDFParser(BaseBlobParser):
-    """Parse a blob from a PDF using `py-zerox` library.
-
-    This class provides methods to parse a blob from a PDF document, supporting various
-    configurations such as handling password-protected PDFs, extracting images.
-    It integrates the 'py-zerox' library for PDF processing and offers synchronous blob
-    parsing.
-
-    Examples:
-        Setup:
-
-        .. code-block:: bash
-
-            pip install -U langchain-community py-zerox
-
-        Load a blob from a PDF file:
-
-        .. code-block:: python
-
-            from langchain_core.documents.base import Blob
-
-            blob = Blob.from_path("./example_data/layout-parser-paper.pdf")
-
-        Instantiate the parser:
-
-        .. code-block:: python
-
-            from langchain_community.document_loaders.parsers import ZeroxPDFParser
-
-            parser = ZeroxPDFParser(
-                # password = None,
-                mode = "single",
-                pages_delimitor = "\n\f",
-                # extract_images = True,
-                # images_to_text = convert_images_to_text_with_tesseract(),
-            )
-
-        Lazily parse the blob:
-
-        .. code-block:: python
-
-            docs = []
-            docs_lazy = parser.lazy_parse(blob)
-
-            for doc in docs_lazy:
-                docs.append(doc)
-            print(docs[0].page_content[:100])
-            print(docs[0].metadata)
-    """
-
-    warnings.filterwarnings(
-        "ignore",
-        module=r"^pyzerox.models.modellitellm$",
-        message=r"\s*Custom system prompt was provided which.*",
-    )
-    _warn_images_to_text = False
-    _warn_creator = False
-    _map_extract_tables = {
-        "markdown": "",
-        "html": "But, use html syntax for convert all tables. ",
-    }
-    _map_extract_images = {
-        convert_images_to_text_with_rapidocr: "",
-        convert_images_to_text_with_tesseract: "",
-        convert_images_to_description: "If you come across a picture, "
-        "diagram or other illustration, "
-        "describe it. ",
-    }
-    _prompt = PromptTemplate.from_template(
-        "Convert the following PDF page to markdown. "
-        "{prompt_tables}"
-        "{prompt_images}"
-        "Remove the header, footer and page number. "
-        "Return only the markdown with no explanation text. "
-        "Do not exclude any content from the page. ",
-    )
-
-    def __init__(
-        self,
-        mode: Literal["single", "page"] = "page",
-        pages_delimitor: str = _default_page_delimitor,
-        images_to_text: CONVERT_IMAGE_TO_TEXT = None,
-        extract_images: bool = True,
-        extract_tables: Union[Literal["markdown", "html"], None] = "markdown",
-        cleanup: bool = True,
-        concurrency: int = 10,
-        maintain_format: bool = False,
-        model: str = "gpt-4o-mini",
-        custom_system_prompt: Optional[str] = None,
-        select_pages: Optional[Union[int, Iterable[int]]] = None,
-        **zerox_kwargs: dict[str, Any],
-    ):
-        """
-        Initialize the parser with arguments to be passed to the zerox function.
-        Make sure to set necessary environment variables such as API key, endpoint, etc.
-        Check zerox documentation for list of necessary environment variables for
-        any given model.
-
-        Args:
-            mode: The extraction mode, either "single" for the entire document or "page"
-                for page-wise extraction.
-            pages_delimitor: A string delimiter to separate pages in single-mode
-                extraction.
-            extract_images: Whether to extract images from the PDF.
-            images_to_text: Optional function or callable to convert images to text
-                during extraction.
-            model:
-                Vision capable model to use. Defaults to "gpt-4o-mini".
-                Hosted models are passed in format "<provider>/<model>"
-                Examples: "azure/gpt-4o-mini", "vertex_ai/gemini-1.5-flash-001"
-                          See more details in zerox documentation.
-            cleanup:
-                Whether to cleanup the temporary files after processing, defaults
-                to True
-            concurrency:
-                The number of concurrent processes to run, defaults to 10
-            maintain_format:
-                Whether to maintain the format from the previous page, defaults to False
-            model:
-                The model to use for generating completions, defaults to "gpt-4o-mini".
-                Note - Refer: https://docs.litellm.ai/docs/providers to pass correct
-                model name as according to provider it might be different from actual
-                name.
-            output_dir:
-                The directory to save the markdown output, defaults to None
-            temp_dir:
-                The directory to store temporary files, defaults to some named folder
-                in system's temp directory. If already exists, the contents will be
-                deleted for zerox uses it.
-            custom_system_prompt:
-                The system prompt to use for the model, this overrides the default
-                system prompt of zerox. Generally it is not required unless you want
-                some specific behaviour. When set, it will raise a friendly warning,
-                defaults to None
-            select_pages:
-                Pages to process, can be a single page number or an iterable of page
-                numbers, defaults to None
-            **zerox_kwargs:
-                Arguments specific to the zerox function.
-        """
-        if mode not in ["single", "page"]:
-            raise ValueError("mode must be single or page")
-        if extract_tables not in ["markdown", "html", None]:
-            raise ValueError("extract_tables must be markdown or html")
-
-        self.mode = mode
-        self.pages_delimitor = pages_delimitor
-        self.extract_images = extract_images
-        if not images_to_text:
-            images_to_text = convert_images_to_text_with_rapidocr()
-        self.images_to_text = images_to_text
-        self.extract_tables = extract_tables
-
-        self.cleanup = cleanup
-        self.concurrency = concurrency
-        self.maintain_format = maintain_format
-        self.model = model
-        self.custom_system_prompt = custom_system_prompt
-        self.select_pages = select_pages
-        self.zerox_kwargs = zerox_kwargs
-
-    @staticmethod
-    def _is_valid_url(url: str) -> bool:
-        """Check if the url is valid."""
-        parsed = urlparse(url)
-        return bool(parsed.netloc) and bool(parsed.scheme)
-
-    def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
-        """Lazily parse the blob.
-
-        Args:
-            blob: The blob to parse.
-
-        Raises:
-            ImportError: If the `py-zerox` package is not installed.
-
-        Yields:
-            An iterator over the parsed documents.
-        """
-        try:
-            from pyzerox import zerox
-        except ImportError:
-            raise ImportError(
-                "Could not import pyzerox python package. "
-                "Please install it with `pip install py-zerox`."
-            )
-        temp_file = None
-        try:
-            if not ZeroxPDFParser._is_valid_url(str(blob.path)):
-                temp_file = NamedTemporaryFile()
-                with open(temp_file.name, "wb") as f:
-                    f.write(blob.as_bytes())
-                file_path = temp_file.name
-            else:
-                file_path = str(blob.path)
-
-            with blob.as_bytes_io() as pdf_file_obj:
-                doc_metadata = purge_metadata(self._get_metadata(pdf_file_obj))
-
-            doc_metadata["source"] = blob.source or blob.path
-            zerox_prompt = self.custom_system_prompt
-
-            if not zerox_prompt and self.extract_tables:
-                prompt_tables = ZeroxPDFParser._map_extract_tables[self.extract_tables]
-                if hasattr(self.images_to_text, "creator"):
-                    creator = getattr(self.images_to_text, "creator")
-                    prompt_images = ZeroxPDFParser._map_extract_images[creator]
-                else:
-                    if not ZeroxPDFParser._warn_creator:
-                        ZeroxPDFParser._warn_creator = True
-                        logger.warning("images_to_text can not be simulate")
-                    prompt_images = ""
-                zerox_prompt = ZeroxPDFParser._prompt.format(
-                    prompt_tables=prompt_tables, prompt_images=prompt_images
-                )
-            zerox_output = asyncio.run(
-                zerox(
-                    file_path=str(file_path),
-                    model=self.model,
-                    cleanup=self.cleanup,
-                    concurrency=self.concurrency,
-                    maintain_format=self.maintain_format,
-                    custom_system_prompt=zerox_prompt,
-                    select_pages=self.select_pages,
-                    **self.zerox_kwargs,
-                )
-            )
-
-            # Convert zerox output to Document instances and yield them
-            if len(zerox_output.pages) > 0:
-                doc_metadata = purge_metadata(
-                    doc_metadata
-                    | {
-                        "total_pages": zerox_output.pages[-1].page,
-                        "num_pages": zerox_output.pages[-1].page,  # Deprecated
-                    }
-                )
-                single_texts = []
-                for page in zerox_output.pages:
-                    text_from_page = page.content
-                    images_from_page = ""
-                    all_text = _merge_text_and_extras(
-                        [images_from_page], text_from_page
-                    )
-                    if self.mode == "page":
-                        yield Document(
-                            page_content=all_text,
-                            metadata=doc_metadata | {"page": page.page - 1},
-                        )
-                    else:
-                        single_texts.append(all_text)
-                if self.mode == "single":
-                    yield Document(
-                        page_content=self.pages_delimitor.join(single_texts),
-                        metadata=doc_metadata,
-                    )
-        finally:
-            if temp_file:
-                temp_file.close()
-
-    def _get_metadata(
-        self,
-        fp: BinaryIO,
-        password: str = "",
-        caching: bool = True,
-    ) -> dict[str, Any]:
-        """
-        Extract metadata from a PDF file.
-
-        Args:
-            fp: The file pointer to the PDF file.
-            password: The password for the PDF file, if encrypted. Defaults to an empty
-                string.
-            caching: Whether to cache the PDF structure. Defaults to True.
-
-        Returns:
-            Metadata of the PDF file.
-        """
-        from pdfminer.pdfpage import PDFDocument, PDFPage, PDFParser
-
-        # Create a PDF parser object associated with the file object.
-        parser = PDFParser(fp)
-        # Create a PDF document object that stores the document structure.
-        doc = PDFDocument(parser, password=password, caching=caching)
-        metadata = {}
-
-        for info in doc.info:
-            metadata.update(info)
-        for k, v in metadata.items():
-            try:
-                metadata[k] = PDFMinerParser.resolve_and_decode(v)
-            except Exception as e:  # pragma: nocover
-                # This metadata value could not be parsed. Instead of failing the PDF
-                # read, treat it as a warning only if `strict_metadata=False`.
-                logger.warning(
-                    '[WARNING] Metadata key "%s" could not be parsed due to '
-                    "exception: %s",
-                    k,
-                    str(e),
-                )
-
-        # Count number of pages.
-        metadata["total_pages"] = len(list(PDFPage.create_pages(doc)))
-
-        return metadata
 
 
 class AmazonTextractPDFParser(BaseBlobParser):
