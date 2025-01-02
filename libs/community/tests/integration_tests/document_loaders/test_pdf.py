@@ -165,6 +165,7 @@ def test_amazontextract_loader_failures() -> None:
     "parser_factory,params",
     [
         ("PDFMinerLoader", {}),
+        ("PDFPlumberLoader", {}),
         ("PyMuPDFLoader", {}),
         ("PyPDFLoader", {}),
         ("PyPDFium2Loader", {}),
