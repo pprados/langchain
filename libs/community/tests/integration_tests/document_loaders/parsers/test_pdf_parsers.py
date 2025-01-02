@@ -106,6 +106,7 @@ def _assert_with_duplicate_parser(parser: BaseBlobParser, dedupe: bool = False) 
         ("PyPDFParser", {"extraction_mode": "plain"}),
         ("PyPDFParser", {"extraction_mode": "layout"}),
         ("PyPDFium2Parser", {}),
+        ("ZeroxPDFParser", {}),
     ],
 )
 def test_standard_parameters(
@@ -182,6 +183,7 @@ def test_standard_parameters(
     [
         ("PDFPlumberParser", {}),
         ("PyMuPDFParser", {}),
+        ("ZeroxPDFParser", {}),
     ],
 )
 def test_parser_with_table(
