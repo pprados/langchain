@@ -12,7 +12,10 @@ import langchain_community.document_loaders.parsers as pdf_parsers
 from langchain_community.document_loaders.base import BaseBlobParser
 from langchain_community.document_loaders.blob_loaders import Blob
 from langchain_community.document_loaders.parsers import (
+    PDFMinerParser,
     PDFPlumberParser,
+    PyPDFium2Parser,
+    PyPDFParser,
 )
 
 # PDFs to test parsers on.
@@ -92,11 +95,43 @@ def _assert_with_duplicate_parser(parser: BaseBlobParser, dedupe: bool = False) 
         assert "11000000 SSeerriieess" == docs[0].page_content.split("\n")[0]
 
 
+def test_pypdf_parser() -> None:
+    """Test PyPDF parser."""
+    _assert_with_parser(PyPDFParser())
+
+
+def test_pdfminer_parser() -> None:
+    """Test PDFMiner parser."""
+    # Does not follow defaults to split by page.
+    _assert_with_parser(PDFMinerParser(), splits_by_page=False)
+
+
+def test_pypdfium2_parser() -> None:
+    """Test PyPDFium2 parser."""
+    # Does not follow defaults to split by page.
+    _assert_with_parser(PyPDFium2Parser())
+
+
 def test_pdfplumber_parser() -> None:
     """Test PDFPlumber parser."""
     _assert_with_parser(PDFPlumberParser())
     _assert_with_duplicate_parser(PDFPlumberParser())
     _assert_with_duplicate_parser(PDFPlumberParser(dedupe=True), dedupe=True)
+
+
+def test_extract_images_text_from_pdf_pypdfparser() -> None:
+    """Test extract image from pdf and recognize text with rapid ocr - PyPDFParser"""
+    _assert_with_parser(PyPDFParser(extract_images=True))
+
+
+def test_extract_images_text_from_pdf_pdfminerparser() -> None:
+    """Test extract image from pdf and recognize text with rapid ocr - PDFMinerParser"""
+    _assert_with_parser(PDFMinerParser(extract_images=True))
+
+
+def test_extract_images_text_from_pdf_pypdfium2parser() -> None:
+    """Test extract image from pdf and recognize text with rapid ocr - PyPDFium2Parser"""  # noqa: E501
+    _assert_with_parser(PyPDFium2Parser(extract_images=True))
 
 
 @pytest.mark.parametrize(
@@ -110,11 +145,7 @@ def test_pdfplumber_parser() -> None:
 @pytest.mark.parametrize(
     "parser_factory,params",
     [
-        ("PDFMinerParser", {}),
         ("PyMuPDFParser", {}),
-        ("PyPDFParser", {"extraction_mode": "plain"}),
-        ("PyPDFParser", {"extraction_mode": "layout"}),
-        ("PyPDFium2Parser", {}),
     ],
 )
 def test_standard_parameters(
