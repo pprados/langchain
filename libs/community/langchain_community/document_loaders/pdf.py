@@ -1660,7 +1660,7 @@ class PDFRouterLoader(BasePDFLoader):
             blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
         yield from self.parser.lazy_parse(blob)
 
-class LlamfaIndexPDFLoader(BasePDFLoader):
+class LlamaIndexPDFLoader(BasePDFLoader):
     def __init__(
         self,
         file_path: Union[str, Path],

@@ -8,6 +8,7 @@ def test_parsers_public_api_correct() -> None:
         "BS4HTMLParser",
         "DocAIParser",
         "GrobidParser",
+        "LlamaIndexPDFParser",
         "LanguageParser",
         "OpenAIWhisperParser",
         "PyPDFParser",

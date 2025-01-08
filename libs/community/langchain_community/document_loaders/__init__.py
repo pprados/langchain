@@ -349,6 +349,7 @@ if TYPE_CHECKING:
     from langchain_community.document_loaders.pdf import (
         AmazonTextractPDFLoader,
         DedocPDFLoader,
+        LlamaIndexPDFLoader,
         MathpixPDFLoader,
         OnlinePDFLoader,
         PagedPDFSplitter,
@@ -627,6 +628,7 @@ _module_lookup = {
     "JSONLoader": "langchain_community.document_loaders.json_loader",
     "JoplinLoader": "langchain_community.document_loaders.joplin",
     "KineticaLoader": "langchain_community.document_loaders.kinetica_loader",
+    "LlamaIndexPDFLoader": "langchain_community.document_loaders.pdf",
     "LakeFSLoader": "langchain_community.document_loaders.lakefs",
     "LarkSuiteDocLoader": "langchain_community.document_loaders.larksuite",
     "LLMSherpaFileLoader": "langchain_community.document_loaders.llmsherpa",
@@ -839,6 +841,7 @@ __all__ = [
     "KineticaLoader",
     "LakeFSLoader",
     "LarkSuiteDocLoader",
+    "LlamaIndexPDFLoader",
     "LLMSherpaFileLoader",
     "MastodonTootsLoader",
     "MHTMLLoader",

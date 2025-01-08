@@ -1,3 +1,4 @@
+import importlib
 import os
 from pathlib import Path
 from typing import Sequence, Union
@@ -134,20 +135,33 @@ def test_amazontextract_loader_failures() -> None:
 
 
 @pytest.mark.parametrize(
-    "parser_factory,params",
+    "parser_factory,require,params,envs",
     [
-        ("PDFMinerLoader", {}),
-        ("PDFPlumberLoader", {}),
-        ("PyMuPDFLoader", {}),
-        ("PyPDFLoader", {}),
-        ("PyPDFium2Loader", {}),
-        ("ZeroxPDFLoader", {}),
+        ("LlamaIndexPDFLoader", "llama_parse", {}, ["LLAMA_CLOUD_API_KEY"]),
+        ("PDFMinerLoader", "pdfminer",{},[]),
+        ("PDFPlumberLoader", "pdfplumber", {},[]),
+        ("PyMuPDFLoader", "pymupdf", {},[]),
+        ("PyPDFLoader", "pypdf", {},[]),
+        ("PyPDFium2Loader", "pypdfium2", {},[]),
+        ("ZeroxPDFLoader", "py-zerox", {},[]),
     ],
 )
 def test_standard_parameters(
     parser_factory: str,
+    require:str,
     params: dict,
+    envs: list[str],
 ) -> None:
+    try:
+        require = require.replace("-", "")
+        importlib.import_module(require, package=None)
+    except ModuleNotFoundError:
+        pytest.skip(f"{parser_factory} skiped. Require '{require}'")
+    for key in envs:
+        if key not in os.environ:
+            pytest.skip(f"{parser_factory} skiped. "
+                        f"Require '{key}' environment variable")
+
     loader_class = getattr(pdf_loaders, parser_factory)
 
     file_path = Path(__file__).parent.parent / "examples/hello.pdf"

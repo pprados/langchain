@@ -1,6 +1,7 @@
 """Tests for the various PDF parsers."""
 
 import importlib
+import os
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -81,7 +82,6 @@ def _assert_with_parser(parser: BaseBlobParser, *, splits_by_page: bool = True) 
         ("PyMuPDFParser", "pymupdf", {}),
         ("PyPDFParser", "pypdf", {}),
         ("PyPDFium2Parser", "pypdfium2", {}),
-        # ("ZeroxPDFParser", "py-zerox",{}),  # Online only
     ],
 )
 def test_parsers(
