@@ -2565,3 +2565,164 @@ class PDFRouterParser(BaseBlobParser):
                     for doc in parser.lazy_parse(blob):
                         doc.metadata["router"] = name
                         yield doc
+
+
+class LlamaIndexPDFParser(BaseBlobParser):
+    """Parse a blob from a PDF using `llama_parse` library.
+
+    This class provides methods to parse a blob from a PDF document, supporting various
+    configurations such as handling password-protected PDFs, extracting images, and
+    defining extraction mode.
+
+    Examples:
+        Setup:
+
+        .. code-block:: bash
+
+            pip install -U langchain-community llama_parse
+
+        Load a blob from a PDF file:
+
+        .. code-block:: python
+
+            from langchain_core.documents.base import Blob
+
+            blob = Blob.from_path("./example_data/layout-parser-paper.pdf")
+
+        Instantiate the parser:
+
+        .. code-block:: python
+
+            from langchain_community.document_loaders.parsers import LlamaIndexPDFParser
+
+            parser = LlamaIndexPDFParser(
+                # password = None,
+                mode = "single",
+                pages_delimitor = "\n\f",
+                # extract_images = True,
+                # images_to_text = convert_images_to_text_with_tesseract(),
+                # extract_tables="markdown",
+            )
+
+        Lazily parse the blob:
+
+        .. code-block:: python
+
+            docs = []
+            docs_lazy = parser.lazy_parse(blob)
+
+            for doc in docs_lazy:
+                docs.append(doc)
+            print(docs[0].page_content[:100])
+            print(docs[0].metadata)
+    """
+
+    def __init__(
+        self,
+        *,
+        password: Optional[str] = None,
+        mode: Literal["single", "page"] = "single",
+        pages_delimitor: str = _default_page_delimitor,
+        extract_tables: Literal["markdown"] = "markdown",
+        api_key: Optional[str] = None,
+        verbose: bool = False,
+        language: str = "en",
+        extract_images: bool = False,
+        images_to_text: CONVERT_IMAGE_TO_TEXT = None,
+    ) -> None:
+        if mode not in ["single", "page"]:
+            raise ValueError("mode must be single or page")
+        if extract_images:
+            logger.info("Ignore extract_images==True in LlamaIndexPDFParser.")
+        if extract_tables != "markdown" or images_to_text:
+            logger.info("Ignore extract_tables!='markdown' in LlamaIndexPDFParser.")
+
+        if password:
+            logger.info("Ignore password in LlamaIndexPDFParser.")
+
+        self.mode = mode
+        self.extract_tables = extract_tables
+        self.pages_delimitor = pages_delimitor
+        self.api_key = api_key
+        self.language = language
+        self.verbose = verbose
+        self._llama_parser = None
+
+    def _get_metadata(self, blob: Blob) -> dict[str, Any]:
+        with blob.as_bytes_io() as pdf_file_obj:
+            doc_metadata = purge_metadata(
+                LlamaIndexPDFParser.__get_metadata(pdf_file_obj)
+            )
+            return blob.metadata | doc_metadata
+
+    @staticmethod
+    def __get_metadata(
+        fp: BinaryIO,
+        password: str = "",
+        caching: bool = True,
+    ) -> dict[str, Any]:
+        from pdfminer.pdfpage import PDFDocument, PDFPage, PDFParser
+
+        # Create a PDF parser object associated with the file object.
+        parser = PDFParser(fp)
+        # Create a PDF document object that stores the document structure.
+        doc = PDFDocument(parser, password=password, caching=caching)
+        metadata = {}
+
+        for info in doc.info:
+            metadata.update(info)
+        for k, v in metadata.items():
+            try:
+                metadata[k] = PDFMinerParser.resolve_and_decode(v)
+            except Exception as e:  # pragma: nocover
+                # This metadata value could not be parsed. Instead of failing the PDF
+                # read, treat it as a warning only if `strict_metadata=False`.
+                logger.warning(
+                    '[WARNING] Metadata key "%s" could not be parsed due to '
+                    "exception: %s",
+                    k,
+                    str(e),
+                )
+
+        # Count number of pages.
+        metadata["total_pages"] = len(list(PDFPage.create_pages(doc)))
+
+        return metadata
+
+    def lazy_parse(self, blob: Blob) -> Iterator[Document]:
+        try:
+            import pdfminer  # noqa:F401
+            from llama_parse import LlamaParse
+        except ImportError:
+            raise ImportError(
+                "llama_parse package not found, please install it "
+                "with `pip install llama_parse pdfminer.six`"
+            )
+        if not self._llama_parser:
+            self._llama_parser = LlamaParse(
+                api_key=os.environ.get("LLAMAINDEX_API_KEY", self.api_key),
+                result_type="markdown",  # "markdown" and "text" are available
+                num_workers=1,
+                verbose=self.verbose,
+                language=self.language,
+            )
+
+        doc_metadata = self._get_metadata(blob) | {"source": blob.source}
+        llama_documents = self._llama_parser.load_data(  # type: ignore[attr-defined]
+            blob.as_bytes(), extra_info={"file_name": blob.source}
+        )
+
+        full_text = []
+        for page_number, llama_doc in enumerate(llama_documents):
+            if self.mode == "single":
+                full_text.append(llama_doc.text)
+            else:
+                yield Document(
+                    page_content=llama_doc.text,
+                    metadata=doc_metadata | llama_doc.metadata | {"page": page_number},
+                )
+        if self.mode == "single":
+            yield Document(
+                page_content=self.pages_delimitor.join(full_text),
+                metadata=doc_metadata,
+            )

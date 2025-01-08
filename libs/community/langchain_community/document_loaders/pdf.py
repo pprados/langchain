@@ -42,7 +42,7 @@ from langchain_community.document_loaders.parsers.pdf import (
     PyPDFium2Parser,
     PyPDFParser,
     ZeroxPDFParser,
-    _default_page_delimitor, PDFRouterParser,
+    _default_page_delimitor, PDFRouterParser, LlamaIndexPDFParser,
 )
 from langchain_community.document_loaders.unstructured import UnstructuredFileLoader
 
@@ -1652,6 +1652,58 @@ class PDFRouterLoader(BasePDFLoader):
     def lazy_load(
         self,
     ) -> Iterator[Document]:
+        if self.web_path:
+            blob = Blob.from_data(
+                open(self.file_path, "rb").read(), path=self.web_path
+            )  # type: ignore[attr-defined]
+        else:
+            blob = Blob.from_path(self.file_path)  # type: ignore[attr-defined]
+        yield from self.parser.lazy_parse(blob)
+
+class LlamfaIndexPDFLoader(BasePDFLoader):
+    def __init__(
+        self,
+        file_path: Union[str, Path],
+        *,
+        headers: Optional[dict] = None,
+        password: Optional[str] = None,
+        mode: Literal["single", "page"] = "single",
+        pages_delimitor: str = _default_page_delimitor,
+        extract_tables: Literal["markdown"] = "markdown",
+        api_key: Optional[str] = None,
+        verbose: bool = False,
+        language: str = "en",
+        extract_images: bool = False,
+        images_to_text: CONVERT_IMAGE_TO_TEXT = None,
+    ):
+        super().__init__(file_path, headers=headers)
+        if extract_images:
+            logger.info("Ignore extract_images==True in LlamaIndexPDFParser.")
+        if extract_tables != "markdown" or images_to_text:
+            logger.info("Ignore extract_tables!='markdown' in LlamaIndexPDFParser.")
+        self.parser = LlamaIndexPDFParser(
+            password=password,
+            mode=mode,
+            pages_delimitor=pages_delimitor,
+            extract_images=extract_images,
+            images_to_text=images_to_text,
+            extract_tables=extract_tables,
+            api_key=api_key,
+            verbose=verbose,
+            language=language,
+        )
+
+    def lazy_load(
+        self,
+    ) -> Iterator[Document]:
+        """Lazily load documents."""
+        try:
+            from llama_parse import LlamaParse  # noqa:F401
+        except ImportError:
+            raise ImportError(
+                "llama_parse package not found, please install it "
+                "with `pip install llama_parse`"
+            )
         if self.web_path:
             blob = Blob.from_data(
                 open(self.file_path, "rb").read(), path=self.web_path
