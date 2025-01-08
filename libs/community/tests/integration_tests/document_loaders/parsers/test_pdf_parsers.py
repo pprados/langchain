@@ -89,35 +89,6 @@ def _assert_with_duplicate_parser(parser: BaseBlobParser, dedupe: bool = False) 
         assert "11000000  SSeerriieess" == docs[0].page_content.split("\n")[0]
 
 
-def test_pdfminer_parser() -> None:
-    """Test PDFMiner parser."""
-    # Does not follow defaults to split by page.
-    _assert_with_parser(PDFMinerParser(), splits_by_page=False)
-
-
-def test_pypdfium2_parser() -> None:
-    """Test PyPDFium2 parser."""
-    # Does not follow defaults to split by page.
-    _assert_with_parser(PyPDFium2Parser())
-
-
-def test_pdfplumber_parser() -> None:
-    """Test PDFPlumber parser."""
-    _assert_with_parser(PDFPlumberParser())
-    _assert_with_duplicate_parser(PDFPlumberParser())
-    _assert_with_duplicate_parser(PDFPlumberParser(dedupe=True), dedupe=True)
-
-
-def test_extract_images_text_from_pdf_pdfminerparser() -> None:
-    """Test extract image from pdf and recognize text with rapid ocr - PDFMinerParser"""
-    _assert_with_parser(PDFMinerParser(extract_images=True))
-
-
-def test_extract_images_text_from_pdf_pypdfium2parser() -> None:
-    """Test extract image from pdf and recognize text with rapid ocr - PyPDFium2Parser"""  # noqa: E501
-    _assert_with_parser(PyPDFium2Parser(extract_images=True))
-
-
 @pytest.mark.parametrize(
     "mode",
     ["single", "page"],
@@ -276,3 +247,21 @@ def test_parser_with_table(
         **params,
     )
     _std_assert_with_parser(parser)
+
+def test_parser_router_parse() -> None:
+    from langchain_community.document_loaders.parsers.pdf import PDFRouterParser
+    from langchain_community.document_loaders.parsers import PyMuPDFParser
+    from langchain_community.document_loaders.parsers import PDFPlumberParser
+    from langchain_community.document_loaders.parsers import PyPDFium2Parser
+    mode = "single"
+    routes = [
+        # Name, keys with regex, parser
+        ("LayoutPaper", {"page1": "This paper introduces LayoutParser"},
+         PDFPlumberParser(mode=mode)),
+        ("Microsoft", {"producer": "Microsoft", "creator": "Microsoft"},
+         PyMuPDFParser(mode=mode)),
+        ("LibreOffice", {"producer": "LibreOffice", }, PDFPlumberParser(mode=mode)),
+        ("Latex", {"creator": "LaTeX"}, PDFPlumberParser(mode=mode)),
+        ("default", {}, PyPDFium2Parser(mode=mode))
+    ]
+    _assert_with_parser(PDFRouterParser(routes=routes), splits_by_page=False)

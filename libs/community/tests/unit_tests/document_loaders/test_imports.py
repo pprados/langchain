@@ -125,6 +125,7 @@ EXPECTED_ALL = [
     "PDFMinerLoader",
     "PDFMinerPDFasHTMLLoader",
     "PDFPlumberLoader",
+    "PDFRouterLoader",
     "PagedPDFSplitter",
     "PlaywrightURLLoader",
     "PolarsDataFrameLoader",
