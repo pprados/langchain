@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from langchain_community.document_loaders.parsers.pdf import (
         PDFMinerParser,
         PDFPlumberParser,
+        PDFRouterParser,
         PyMuPDFParser,
         PyPDFium2Parser,
         PyPDFParser,
@@ -42,6 +43,7 @@ _module_lookup = {
     "OpenAIWhisperParser": "langchain_community.document_loaders.parsers.audio",
     "PDFMinerParser": "langchain_community.document_loaders.parsers.pdf",
     "PDFPlumberParser": "langchain_community.document_loaders.parsers.pdf",
+    "PDFRouterParser": "langchain_community.document_loaders.parsers.pdf",
     "PyMuPDFParser": "langchain_community.document_loaders.parsers.pdf",
     "PyPDFParser": "langchain_community.document_loaders.parsers.pdf",
     "PyPDFium2Parser": "langchain_community.document_loaders.parsers.pdf",
@@ -66,6 +68,7 @@ __all__ = [
     "OpenAIWhisperParser",
     "PDFMinerParser",
     "PDFPlumberParser",
+    "PDFRouterParser",
     "PyMuPDFParser",
     "PyPDFParser",
     "PyPDFium2Parser",

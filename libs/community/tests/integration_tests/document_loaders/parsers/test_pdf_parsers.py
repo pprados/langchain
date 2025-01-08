@@ -276,3 +276,21 @@ def test_parser_with_table(
         **params,
     )
     _std_assert_with_parser(parser)
+
+def test_parser_router_parse() -> None:
+    from langchain_community.document_loaders.parsers.pdf import PDFRouterParser
+    from langchain_community.document_loaders.parsers import PyMuPDFParser
+    from langchain_community.document_loaders.parsers import PDFPlumberParser
+    from langchain_community.document_loaders.parsers import PyPDFium2Parser
+    mode = "single"
+    routes = [
+        # Name, keys with regex, parser
+        ("LayoutPaper", {"page1": "This paper introduces LayoutParser"},
+         PDFPlumberParser(mode=mode)),
+        ("Microsoft", {"producer": "Microsoft", "creator": "Microsoft"},
+         PyMuPDFParser(mode=mode)),
+        ("LibreOffice", {"producer": "LibreOffice", }, PDFPlumberParser(mode=mode)),
+        ("Latex", {"creator": "LaTeX"}, PDFPlumberParser(mode=mode)),
+        ("default", {}, PyPDFium2Parser(mode=mode))
+    ]
+    _assert_with_parser(PDFRouterParser(routes=routes), splits_by_page=False)
