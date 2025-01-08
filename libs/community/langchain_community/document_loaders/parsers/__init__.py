@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         LanguageParser,
     )
     from langchain_community.document_loaders.parsers.pdf import (
+        LlamaIndexPDFParser,
         PDFMinerParser,
         PDFPlumberParser,
         PDFRouterParser,
@@ -40,6 +41,7 @@ _module_lookup = {
     "DocAIParser": "langchain_community.document_loaders.parsers.docai",
     "GrobidParser": "langchain_community.document_loaders.parsers.grobid",
     "LanguageParser": "langchain_community.document_loaders.parsers.language",
+    "LlamaIndexPDFParser": "langchain_community.document_loaders.parsers.pdf",
     "OpenAIWhisperParser": "langchain_community.document_loaders.parsers.audio",
     "PDFMinerParser": "langchain_community.document_loaders.parsers.pdf",
     "PDFPlumberParser": "langchain_community.document_loaders.parsers.pdf",
@@ -65,6 +67,7 @@ __all__ = [
     "DocAIParser",
     "GrobidParser",
     "LanguageParser",
+    "LlamaIndexPDFParser",
     "OpenAIWhisperParser",
     "PDFMinerParser",
     "PDFPlumberParser",

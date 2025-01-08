@@ -96,6 +96,7 @@ EXPECTED_ALL = [
     "JoplinLoader",
     "KineticaLoader",
     "LLMSherpaFileLoader",
+    "LlamaIndexPDFLoader",
     "LarkSuiteDocLoader",
     "LakeFSLoader",
     "MHTMLLoader",
