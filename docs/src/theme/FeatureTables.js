@@ -893,7 +893,7 @@ const FEATURE_TABLES = {
             },
             {
                 name: "LlamaIndex",
-                link: "llamaindex"
+                link: "llamaindex",
                 source: "Load PDF files using LlamaIndexPDFLoader",
                 api: "Package",
                 apiLink: "https://python.langchain.com/api_reference/community/document_loaders/langchain_community.document_loaders.pdf.LlamaIndexPDFLoader.html"

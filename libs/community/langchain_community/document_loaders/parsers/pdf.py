@@ -2727,3 +2727,105 @@ class LlamaIndexPDFParser(BaseBlobParser):
                 page_content=self.pages_delimitor.join(full_text),
                 metadata=doc_metadata,
             )
+
+class DoclingPDFParser(ImagesPdfParser):
+    """Parse `PDF` using `PyMuPDF`."""
+
+    def __init__(
+            self,
+            *,
+            password: Optional[str] = None,
+            mode: Literal["single", "page"] = "single",
+            pages_delimitor: str = _default_page_delimitor,
+            images_to_text: CONVERT_IMAGE_TO_TEXT = None,
+            extract_tables: Optional[Literal["markdown"]] = "markdown",
+    ) -> None:
+        """Initialize the parser.
+
+        Args:
+            password: Password to open the PDF.
+            mode: Extraction mode to use. Either "single" or "page".
+            pages_delimitor: Delimiter to use between pages.
+                             May be r'\f', '<!--PAGE BREAK -->', ...
+
+        """
+        super().__init__(
+            extract_images=False,  # PPR: extract_images will be True
+            images_to_text=None,
+        )
+        if mode not in ["single", "page"]:
+            raise ValueError("mode must be single or page")
+        if password:
+            raise ValueError("Password is not implemented")
+        if extract_tables != "markdown":
+            logger.warning("DoclingPDFParser accept only markdown format")
+        self.mode = mode
+        self.pages_delimitor = pages_delimitor
+
+    def lazy_parse(self, blob: Blob) -> Iterator[Document]:  # type: ignore[valid-type]
+        """Lazily parse the blob."""
+        try:
+            from docling.document_converter import DocumentConverter
+            from docling_core.types.io import DocumentStream
+        except ImportError:
+            raise ImportError(
+                "docling package not found, please install it "
+                "with `pip install docling pdfminer.six`"
+            )
+        converter = DocumentConverter()
+
+        doc_metadata = purge_metadata(self._get_metadata(blob))
+        result = converter.convert(
+            DocumentStream(
+                name=blob.path or blob.source,
+                stream=io.BytesIO(blob.as_bytes())))
+        if self.mode == "single":
+            text = result.document.export_to_markdown(
+                image_mode=ImageRefMode.EMBEDDED,
+                # image_placeholder="<!-- image -->"
+            )
+            yield Document(page_content=text,
+                           metadata=doc_metadata)
+        elif self.mode == "page":
+            for page_no in range(len(result.pages)):
+                text = result.document.export_to_markdown(
+                    page_no=page_no+1,
+                    image_mode= ImageRefMode.EMBEDDED,
+                )
+                yield Document(page_content=text,
+                               metadata={**doc_metadata,"page":page_no})
+
+    def _get_metadata(
+            self,
+            blob: Blob,
+    ) -> dict[str, Any]:
+
+        from pdfminer.pdfpage import PDFDocument, PDFPage, PDFParser
+
+        with blob.as_bytes_io() as fp:
+
+            # Create a PDF parser object associated with the file object.
+            parser = PDFParser(fp)
+            # Create a PDF document object that stores the document structure.
+            doc = PDFDocument(parser)
+            metadata = {}
+
+            for info in doc.info:
+                metadata.update(info)
+            for k, v in metadata.items():
+                try:
+                    metadata[k] = PDFMinerParser.resolve_and_decode(v)
+                except Exception as e:  # pragma: nocover
+                    # This metadata value could not be parsed. Instead of failing the PDF
+                    # read, treat it as a warning only if `strict_metadata=False`.
+                    logger.warning(
+                        '[WARNING] Metadata key "%s" could not be parsed due to '
+                        "exception: %s",
+                        k,
+                        str(e),
+                    )
+
+            # Count number of pages.
+            metadata["total_pages"] = len(list(PDFPage.create_pages(doc)))
+
+            return metadata
